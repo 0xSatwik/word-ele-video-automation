@@ -1,5 +1,6 @@
 import os
 import time
+import random
 from datetime import datetime
 import requests
 from selenium import webdriver
@@ -225,36 +226,48 @@ driver.set_window_size(1920, 1080)
 print("Opening NYT Wordle...")
 driver.get('https://www.nytimes.com/games/wordle/index.html')
 
-# Wait for page load
-time.sleep(5)
+# Human-like delay function with random variation
+def human_delay(min_seconds=1, max_seconds=3):
+    """Wait for a random amount of time to simulate human behavior."""
+    delay = random.uniform(min_seconds, max_seconds)
+    time.sleep(delay)
+    return delay
+
+# Wait for page to fully load with human-like delay
+print("Waiting for page to load...")
+human_delay(5, 8)
 
 # Click "Play" button if present
 try:
+    human_delay(1, 2)  # Pause before clicking
     play_button = driver.find_element(By.CSS_SELECTOR, 'button[data-testid="Play"]')
     play_button.click()
     print("Clicked Play button")
-    time.sleep(3)
+    human_delay(2, 4)
 except Exception as e:
     print(f"Play button not found: {e}")
 
 # Close "How to play" modal
+human_delay(1, 2)
 try:
     close_button = driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Close"]')
     close_button.click()
-    time.sleep(1)
+    human_delay(1, 2)
 except:
     try:
         close_button = driver.find_element(By.CSS_SELECTOR, '[data-testid="close-icon"]')
         close_button.click()
-        time.sleep(1)
+        human_delay(1, 2)
     except:
         pass
 
 game_app = driver.find_element(By.TAG_NAME, 'body')
 
 def type_word(word):
-    """Type a word into the Wordle game."""
+    """Type a word into the Wordle game with human-like timing."""
     print(f"Typing word: {word.upper()}")
+    human_delay(0.5, 1.5)  # Pause before typing
+    
     for letter in word:
         l = letter.lower()
         try:
@@ -270,10 +283,12 @@ def type_word(word):
                     key.click()
                 else:
                     game_app.send_keys(l)
-        time.sleep(0.5)  # Delay between letters for visual effect
+        # Random delay between letters (like human typing)
+        human_delay(0.15, 0.4)
     
+    human_delay(0.3, 0.8)  # Pause before pressing enter
     game_app.send_keys(Keys.ENTER)
-    time.sleep(3)  # Wait for tile flip animation
+    human_delay(4, 6)  # Wait for tile flip animation
 
 
 def get_feedback(row_index):
@@ -284,7 +299,7 @@ def get_feedback(row_index):
     - '1' = present (yellow)  
     - '2' = correct (green)
     """
-    time.sleep(2)  # Extra wait for animation
+    human_delay(2, 4)  # Wait for animation with human-like delay
     
     js_script = f"""
         const rows = document.querySelectorAll('div[aria-label^="Row"]');
