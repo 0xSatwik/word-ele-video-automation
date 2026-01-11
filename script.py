@@ -67,7 +67,7 @@ class Node:
         parent_node = self.parent
         if parent_node is None:
             return
-        self.decrement_parents(self.child_word_count if self.child_word_count > 0 else 1)
+        self.decrement_parents(self.child_word_count)
         if self.letters in parent_node.children:
             parent_node.children.pop(self.letters)
         if len(parent_node.children) == 0 and parent_node.parent is not None:
@@ -248,7 +248,7 @@ with sync_playwright() as p:
     page = context.new_page()
     
     print("Opening NYT Wordle...")
-    page.goto('https://www.nytimes.com/games/wordle/index.html')
+    page.goto('https://www.nytimes.com/games/wordle/index.html', timeout=60000)
     
     # Wait for page to load like a human would
     print("Waiting for page to load...")
@@ -489,6 +489,13 @@ except Exception as e:
 # ============================================================================
 
 print("\nUploading to YouTube...")
+
+if 'YOUTUBE_REFRESH_TOKEN' not in os.environ:
+    print("⚠️ YOUTUBE_REFRESH_TOKEN not found in environment variables.")
+    print(f"Video saved locally as: {final_video_file}")
+    print("Skipping upload.")
+    exit(0)
+
 SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
 creds = Credentials.from_authorized_user_info({
     'refresh_token': os.environ['YOUTUBE_REFRESH_TOKEN'],
