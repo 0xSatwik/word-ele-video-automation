@@ -325,6 +325,50 @@ with sync_playwright() as p:
             print(f"Error reading feedback: {e}")
             return None
     
+    def clean_up_ui(page):
+        """Hide specific popups and overlays to keep the video clean."""
+        print("Cleaning up UI (hiding popups)...")
+        try:
+            page.evaluate("""
+                () => {
+                    const terms = ["Create a free account", "Log in", "Subscribe", "bot", "suspect", "blocked"];
+                    
+                    const hide = (el) => {
+                        if (el) {
+                            el.style.display = 'none';
+                            el.style.visibility = 'hidden';
+                            el.style.opacity = '0';
+                        }
+                    };
+
+                    // 1. Hide Standard Modals (Dialogs)
+                    const modals = document.querySelectorAll('div[role="dialog"], div[class*="Modal"], div[class*="modal"]');
+                    modals.forEach(m => {
+                        // Check if it contains relevant text or is just a generic completion modal
+                        // Actually, we want to hide ALL modals at the end so we can see the board
+                        hide(m);
+                    });
+                    
+                    // 2. Hide specific overlays containing text
+                    const allDivs = document.querySelectorAll('div, secion, aside');
+                    for (let el of allDivs) {
+                        const style = window.getComputedStyle(el);
+                        if (style.position === 'fixed' || style.position === 'absolute' || style.zIndex > 100) {
+                             if (el.innerText && terms.some(term => el.innerText.includes(term))) {
+                                hide(el);
+                            }
+                        }
+                    }
+                    
+                    // 3. Remove specifically the "Subscribe" bottom banner if present
+                    const bottomBanner = document.querySelector('div[data-testid="bottom-banner"]');
+                    hide(bottomBanner);
+                }
+            """)
+            human_delay(0.5, 1.0)
+        except Exception as e:
+            print(f"Error cleaning UI: {e}")
+
     # ========================================================================
     # SOLVER LOOP
     # ========================================================================
@@ -347,7 +391,8 @@ with sync_playwright() as p:
         if feedback == "22222":
             print(f"\n🎉 SOLVED! The word was: {best_word.upper()}")
             solved = True
-            human_delay(3, 5)
+            clean_up_ui(page) # Hide popups so we can see the board clearly
+            human_delay(4, 6) # Longer delay to show the winning board
             break
         
         try:
@@ -364,9 +409,10 @@ with sync_playwright() as p:
     
     if not solved:
         print("Could not solve in 6 attempts.")
+        clean_up_ui(page)
     
     # Final delay to capture end state
-    human_delay(3, 5)
+    human_delay(2, 3)
     
     # Close browser and save video
     recorded_video_path = page.video.path()
@@ -381,14 +427,14 @@ try:
     # Load the gameplay video
     gameplay_clip = VideoFileClip(recorded_video_path)
     
-    # Create intro from image (4 seconds)
+    # Create intro from image (5 seconds as requested)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     intro_image_path = os.path.join(base_dir, 'intro.png')
     
     print(f"Looking for intro image at: {intro_image_path}")
     if os.path.exists(intro_image_path):
         # Create ImageClip
-        intro_clip = ImageClip(intro_image_path).set_duration(4)
+        intro_clip = ImageClip(intro_image_path).set_duration(5).set_fps(24)
         # Resize to match gameplay video exactly
         intro_clip = intro_clip.resize(width=1920, height=1080)
         
@@ -437,8 +483,7 @@ video_description = f"""🟩 Wordle Answer for {video_date}
 
 Watch how to solve today's Wordle puzzle step by step! Learn the best strategy to crack the daily Wordle.
 
-🔗 Try our FREE Wordle Solver: https://WordSolverX.com/wordle-solver
-Solve ANY Wordle game in seconds with our intelligent word elimination tool!
+
 
 📅 Puzzle Date: {video_date}
 
@@ -446,6 +491,17 @@ Solve ANY Wordle game in seconds with our intelligent word elimination tool!
 
 #Wordle #WordleAnswer #Wordle{puzzle_date.replace('-', '')} #TodaysWordle #WordleSolution #WordleHints #NYTWordle #DailyWordle #WordGame #PuzzleGames
 """
+
+# Read and append default description if it exists
+description_file_path = os.path.join(base_dir, 'description.txt')
+if os.path.exists(description_file_path):
+    try:
+        with open(description_file_path, 'r', encoding='utf-8') as f:
+            default_description = f.read()
+            video_description += f"\n\n{default_description}"
+        print("Appended default description from description.txt")
+    except Exception as e:
+        print(f"Warning: Could not read description.txt: {e}")
 
 body = {
     'snippet': {
