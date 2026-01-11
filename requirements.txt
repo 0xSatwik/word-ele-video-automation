@@ -1,4 +1,4 @@
-selenium
+playwright
 requests
 moviepy==1.0.3
 imageio>=2.5.0

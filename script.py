@@ -3,14 +3,11 @@ import time
 import random
 from datetime import datetime
 import requests
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.by import By
+from playwright.sync_api import sync_playwright
 import io
 import numpy as np
 from PIL import Image
-from moviepy.editor import ImageSequenceClip
+from moviepy.editor import VideoFileClip
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -40,7 +37,7 @@ class Node:
             self.children[new_letters].add_word(next_word)
 
     def isolate(self, letter, position):
-        """Keep only branches with this letter in this position (for 'correct' feedback)."""
+        """Keep only branches with this letter in this position."""
         keys = list(self.children.keys())
         if position > 0:
             for key in keys:
@@ -51,7 +48,7 @@ class Node:
                     self.children[key].delete()
 
     def check_leaves(self, letter):
-        """Ensure all leaf words contain this letter (for 'present' feedback)."""
+        """Ensure all leaf words contain this letter."""
         if letter in self.letters:
             return
         if len(self.children) == 0:
@@ -66,7 +63,7 @@ class Node:
         """Remove this node and update parent counts."""
         parent_node = self.parent
         if parent_node is None:
-            return  # Don't delete root
+            return
         self.decrement_parents(self.child_word_count if self.child_word_count > 0 else 1)
         if self.letters in parent_node.children:
             parent_node.children.pop(self.letters)
@@ -80,7 +77,7 @@ class Node:
             self.parent.decrement_parents(num)
 
     def remove(self, letter, position=None):
-        """Remove branches containing this letter (optionally at a specific position)."""
+        """Remove branches containing this letter."""
         keys = list(self.children.keys())
         for key in keys:
             if position is None:
@@ -96,7 +93,7 @@ class Node:
                         self.children[key].delete()
 
     def pick_best_word(self):
-        """Pick the best word to guess based on child word counts."""
+        """Pick the best word to guess."""
         if len(self.children) == 0:
             return self.letters
         
@@ -111,26 +108,19 @@ class Node:
 
         int_scores = [int(s) for s in score.keys()]
         high_score = max(int_scores)
-        high_key = score[str(high_score)][0]  # Pick first in case of tie
+        high_key = score[str(high_score)][0]
         return self.children[high_key].pick_best_word()
 
 
 def apply_result(attempt, result, tree):
-    """
-    Apply the Wordle feedback to prune the word tree.
-    Feedback format: '0' = absent, '1' = present (wrong position), '2' = correct
-    """
+    """Apply feedback to prune the word tree."""
     for i in range(len(attempt)):
         letter = attempt[i].lower()
         if result[i] == '2':
-            # Correct position - keep only branches with this letter here
             tree.isolate(letter, i)
         elif result[i] == '0':
-            # Absent - remove all branches with this letter anywhere
             tree.remove(letter)
         elif result[i] == '1':
-            # Present - wrong position: remove branches WITH letter at this position,
-            # but ensure leaves contain this letter
             tree.remove(letter, i)
             tree.check_leaves(letter)
 
@@ -156,25 +146,38 @@ def build_word_tree(word_file_path):
     return root_node
 
 
+def human_delay(min_seconds=1, max_seconds=3):
+    """Wait for a random amount of time to simulate human behavior."""
+    delay = random.uniform(min_seconds, max_seconds)
+    time.sleep(delay)
+    return delay
+
+
+def human_type(page, text, delay_min=0.08, delay_max=0.25):
+    """Type text with human-like delays between keystrokes."""
+    for char in text:
+        page.keyboard.press(char)
+        time.sleep(random.uniform(delay_min, delay_max))
+
+
 # ============================================================================
 # MAIN SCRIPT
 # ============================================================================
 
-# Step 1: Fetch daily Wordle metadata from API (for video title only)
+# Step 1: Fetch daily Wordle metadata from API
 api_url = 'https://wordle-api.litebloggingpro.workers.dev/api/today'
 try:
     response = requests.get(api_url)
     data = response.json()
     video_date = datetime.strptime(data['date'], '%Y-%m-%d').strftime('%B %d, %Y')
     puzzle_date = data['date']
-    # We do NOT use the answer - the solver figures it out!
     print(f"Puzzle Date: {puzzle_date}")
 except Exception as e:
     print(f"Error fetching puzzle info: {e}")
     video_date = datetime.now().strftime('%B %d, %Y')
     puzzle_date = datetime.now().strftime('%Y-%m-%d')
 
-# Step 2: Build the word tree using words.txt
+# Step 2: Build the word tree
 base_dir = os.path.dirname(os.path.abspath(__file__))
 word_file = os.path.join(base_dir, 'words.txt')
 solver_tree = build_word_tree(word_file)
@@ -183,216 +186,197 @@ if solver_tree is None or solver_tree.child_word_count == 0:
     print("ERROR: Failed to build word tree. Cannot proceed.")
     exit(1)
 
-# Step 3: Set up headless Selenium with anti-detection measures
-options = Options()
-options.add_argument('--headless=new')  # New headless mode (less detectable)
-options.add_argument('--no-sandbox')
-options.add_argument('--disable-dev-shm-usage')
-options.add_argument('--disable-blink-features=AutomationControlled')  # Hide automation
-options.add_argument('--disable-infobars')
-options.add_argument('--disable-extensions')
-options.add_argument('--disable-gpu')
-options.add_argument('--window-size=1920,1080')
+# Step 3: Launch Playwright with video recording
+video_file = f'wordle_{puzzle_date}.webm'
+final_video_file = f'wordle_{puzzle_date}.mp4'
 
-# Realistic user agent to avoid detection
-options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+print("Launching browser with Playwright...")
 
-# Exclude automation switches
-options.add_experimental_option('excludeSwitches', ['enable-automation'])
-options.add_experimental_option('useAutomationExtension', False)
-
-if os.environ.get('CHROME_BIN'):
-    options.binary_location = os.environ['CHROME_BIN']
-
-driver = webdriver.Chrome(options=options)
-
-# Execute stealth scripts to hide webdriver presence
-driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-    'source': '''
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
-        });
-        Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5]
-        });
-        Object.defineProperty(navigator, 'languages', {
-            get: () => ['en-US', 'en']
-        });
-        window.chrome = { runtime: {} };
-    '''
-})
-
-driver.set_window_size(1920, 1080)
-print("Opening NYT Wordle...")
-driver.get('https://www.nytimes.com/games/wordle/index.html')
-
-# Human-like delay function with random variation
-def human_delay(min_seconds=1, max_seconds=3):
-    """Wait for a random amount of time to simulate human behavior."""
-    delay = random.uniform(min_seconds, max_seconds)
-    time.sleep(delay)
-    return delay
-
-# Wait for page to fully load with human-like delay
-print("Waiting for page to load...")
-human_delay(5, 8)
-
-# Click "Play" button if present
-try:
-    human_delay(1, 2)  # Pause before clicking
-    play_button = driver.find_element(By.CSS_SELECTOR, 'button[data-testid="Play"]')
-    play_button.click()
-    print("Clicked Play button")
-    human_delay(2, 4)
-except Exception as e:
-    print(f"Play button not found: {e}")
-
-# Close "How to play" modal
-human_delay(1, 2)
-try:
-    close_button = driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Close"]')
-    close_button.click()
-    human_delay(1, 2)
-except:
-    try:
-        close_button = driver.find_element(By.CSS_SELECTOR, '[data-testid="close-icon"]')
-        close_button.click()
-        human_delay(1, 2)
-    except:
-        pass
-
-game_app = driver.find_element(By.TAG_NAME, 'body')
-
-def type_word(word):
-    """Type a word into the Wordle game with human-like timing."""
-    print(f"Typing word: {word.upper()}")
-    human_delay(0.5, 1.5)  # Pause before typing
+with sync_playwright() as p:
+    # Launch browser with stealth settings
+    browser = p.chromium.launch(
+        headless=True,
+        args=[
+            '--disable-blink-features=AutomationControlled',
+            '--disable-infobars',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+        ]
+    )
     
-    for letter in word:
-        l = letter.lower()
+    # Create context with video recording enabled
+    context = browser.new_context(
+        viewport={'width': 1920, 'height': 1080},
+        record_video_dir='.',
+        record_video_size={'width': 1920, 'height': 1080},
+        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    )
+    
+    # Hide automation
+    context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        window.chrome = { runtime: {} };
+    """)
+    
+    page = context.new_page()
+    
+    print("Opening NYT Wordle...")
+    page.goto('https://www.nytimes.com/games/wordle/index.html')
+    
+    # Wait for page to load like a human would
+    print("Waiting for page to load...")
+    human_delay(5, 8)
+    
+    # Click Play button
+    try:
+        human_delay(1, 2)
+        play_button = page.locator('button[data-testid="Play"]')
+        if play_button.is_visible():
+            play_button.click()
+            print("Clicked Play button")
+            human_delay(2, 4)
+    except Exception as e:
+        print(f"Play button not found: {e}")
+    
+    # Close modal if present
+    try:
+        human_delay(1, 2)
+        close_button = page.locator('button[aria-label="Close"]')
+        if close_button.is_visible():
+            close_button.click()
+            human_delay(1, 2)
+    except:
         try:
-            key = driver.find_element(By.CSS_SELECTOR, f'button[data-key="{l}"]')
-            key.click()
+            close_button = page.locator('[data-testid="close-icon"]')
+            if close_button.is_visible():
+                close_button.click()
+                human_delay(1, 2)
         except:
+            pass
+    
+    def type_word(word):
+        """Type a word with human-like behavior."""
+        print(f"Typing word: {word.upper()}")
+        human_delay(0.5, 1.5)
+        
+        for letter in word.lower():
+            # Find and click the key button
             try:
-                key = driver.find_element(By.XPATH, f"//button[text()='{l.upper()}']")
-                key.click()
-            except:
-                key = driver.execute_script(f'return document.querySelector(\'button[data-key="{l}"]\');')
-                if key:
+                key = page.locator(f'button[data-key="{letter}"]')
+                if key.is_visible():
                     key.click()
                 else:
-                    game_app.send_keys(l)
-        # Random delay between letters (like human typing)
-        human_delay(0.15, 0.4)
-    
-    human_delay(0.3, 0.8)  # Pause before pressing enter
-    game_app.send_keys(Keys.ENTER)
-    human_delay(4, 6)  # Wait for tile flip animation
-
-
-def get_feedback(row_index):
-    """
-    Read the feedback from the Wordle board for a specific row.
-    Returns a string like '02100' where:
-    - '0' = absent (gray)
-    - '1' = present (yellow)  
-    - '2' = correct (green)
-    """
-    human_delay(2, 4)  # Wait for animation with human-like delay
-    
-    js_script = f"""
-        const rows = document.querySelectorAll('div[aria-label^="Row"]');
-        if (!rows || rows.length === 0) return "ERROR_NO_ROWS";
-        const row = rows[{row_index}];
-        if (!row) return "ERROR_NO_ROW";
-        const tiles = row.querySelectorAll('div[data-testid="tile"]');
+                    page.keyboard.press(letter)
+            except:
+                page.keyboard.press(letter)
+            
+            # Human-like delay between keystrokes
+            human_delay(0.12, 0.35)
         
-        let feedback = "";
-        for (let tile of tiles) {{
-            const state = tile.getAttribute('data-state');
-            if (state === 'correct') feedback += '2';
-            else if (state === 'present') feedback += '1';
-            else if (state === 'absent') feedback += '0';
-            else feedback += '?';
-        }}
-        return feedback;
-    """
-    feedback = driver.execute_script(js_script)
-    print(f"Row {row_index + 1} feedback: {feedback}")
-    
-    if "ERROR" in str(feedback) or "?" in str(feedback):
-        print(f"Warning: Could not read feedback completely: {feedback}")
-        return None
-    return feedback
-
-
-# ============================================================================
-# SOLVER LOOP
-# ============================================================================
-
-frames = []
-frames.append(driver.get_screenshot_as_png())  # Capture initial state
-
-solved = False
-for round_num in range(6):
-    # Get best word from solver
-    best_word = solver_tree.pick_best_word()
-    possible_words = solver_tree.child_word_count
-    print(f"\n=== Round {round_num + 1} ===")
-    print(f"Best guess: {best_word.upper()} (from {possible_words} possible words)")
-    
-    # Type the word
-    type_word(best_word)
-    
-    # Capture frames for video
-    time.sleep(3)
-    frames.extend([driver.get_screenshot_as_png()] * 20)
-    
-    # Get feedback
-    feedback = get_feedback(round_num)
-    
-    if feedback is None:
-        print("ERROR: Could not read feedback from game board!")
-        break
-    
-    if feedback == "22222":
-        print(f"\n🎉 SOLVED! The word was: {best_word.upper()}")
-        solved = True
-        frames.extend([driver.get_screenshot_as_png()] * 30)
-        break
-    
-    # Apply feedback to prune the tree
-    try:
-        apply_result(best_word, feedback, solver_tree)
-        remaining = solver_tree.child_word_count
-        print(f"After pruning: {remaining} words remaining")
+        # Pause before pressing enter
+        human_delay(0.5, 1.0)
+        page.keyboard.press('Enter')
         
-        if remaining == 0:
-            print("ERROR: No words remaining after pruning!")
+        # Wait for tile animation
+        human_delay(4, 6)
+    
+    def get_feedback(row_index):
+        """Read feedback from the board."""
+        human_delay(2, 3)
+        
+        try:
+            feedback = page.evaluate(f"""
+                () => {{
+                    const rows = document.querySelectorAll('div[aria-label^="Row"]');
+                    if (!rows || rows.length === 0) return "ERROR_NO_ROWS";
+                    const row = rows[{row_index}];
+                    if (!row) return "ERROR_NO_ROW";
+                    const tiles = row.querySelectorAll('div[data-testid="tile"]');
+                    
+                    let feedback = "";
+                    for (let tile of tiles) {{
+                        const state = tile.getAttribute('data-state');
+                        if (state === 'correct') feedback += '2';
+                        else if (state === 'present') feedback += '1';
+                        else if (state === 'absent') feedback += '0';
+                        else feedback += '?';
+                    }}
+                    return feedback;
+                }}
+            """)
+            print(f"Row {row_index + 1} feedback: {feedback}")
+            
+            if "ERROR" in str(feedback) or "?" in str(feedback):
+                return None
+            return feedback
+        except Exception as e:
+            print(f"Error reading feedback: {e}")
+            return None
+    
+    # ========================================================================
+    # SOLVER LOOP
+    # ========================================================================
+    
+    solved = False
+    for round_num in range(6):
+        best_word = solver_tree.pick_best_word()
+        possible_words = solver_tree.child_word_count
+        print(f"\n=== Round {round_num + 1} ===")
+        print(f"Best guess: {best_word.upper()} (from {possible_words} possible words)")
+        
+        type_word(best_word)
+        
+        feedback = get_feedback(round_num)
+        
+        if feedback is None:
+            print("ERROR: Could not read feedback!")
             break
-    except Exception as e:
-        print(f"Error applying result: {e}")
-        break
+        
+        if feedback == "22222":
+            print(f"\n🎉 SOLVED! The word was: {best_word.upper()}")
+            solved = True
+            human_delay(3, 5)
+            break
+        
+        try:
+            apply_result(best_word, feedback, solver_tree)
+            remaining = solver_tree.child_word_count
+            print(f"After pruning: {remaining} words remaining")
+            
+            if remaining == 0:
+                print("ERROR: No words remaining!")
+                break
+        except Exception as e:
+            print(f"Error applying result: {e}")
+            break
+    
+    if not solved:
+        print("Could not solve in 6 attempts.")
+    
+    # Final delay to capture end state
+    human_delay(3, 5)
+    
+    # Close browser and save video
+    recorded_video_path = page.video.path()
+    context.close()
+    browser.close()
+    
+    print(f"Video recorded to: {recorded_video_path}")
 
-if not solved:
-    print("Could not solve the puzzle in 6 attempts.")
-
-# Capture final state
-time.sleep(3)
-frames.extend([driver.get_screenshot_as_png()] * 30)
-
-driver.quit()
-
-# ============================================================================
-# VIDEO CREATION
-# ============================================================================
-
-print("\nCreating video...")
-np_frames = [np.array(Image.open(io.BytesIO(frame))) for frame in frames]
-clip = ImageSequenceClip(np_frames, fps=10)
-video_file = f'wordle_{puzzle_date}.mp4'
-clip.write_videofile(video_file, codec='libx264')
+# Convert webm to mp4 for YouTube
+print("Converting video format...")
+try:
+    clip = VideoFileClip(recorded_video_path)
+    clip.write_videofile(final_video_file, codec='libx264', audio=False)
+    clip.close()
+    # Clean up webm
+    if os.path.exists(recorded_video_path):
+        os.remove(recorded_video_path)
+except Exception as e:
+    print(f"Video conversion error: {e}")
+    final_video_file = recorded_video_path
 
 # ============================================================================
 # YOUTUBE UPLOAD
@@ -423,7 +407,7 @@ body = {
     'status': {'privacyStatus': 'public'}
 }
 
-media = MediaFileUpload(video_file, mimetype='video/mp4', resumable=True)
+media = MediaFileUpload(final_video_file, mimetype='video/mp4', resumable=True)
 request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
 response = request.execute()
 print(f'✅ Video uploaded: https://youtu.be/{response["id"]}')
