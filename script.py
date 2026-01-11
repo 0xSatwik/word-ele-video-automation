@@ -37,6 +37,10 @@ options = Options()
 options.add_argument('--headless')
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
+# Use CHROME_BIN env var if available, otherwise let Selenium find it (or use default shim)
+if os.environ.get('CHROME_BIN'):
+    options.binary_location = os.environ['CHROME_BIN']
+
 driver = webdriver.Chrome(options=options)
 driver.set_window_size(1920, 1080)  # For 1080p video
 driver.get('https://www.nytimes.com/games/wordle/index.html')

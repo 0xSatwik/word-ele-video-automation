@@ -20,6 +20,9 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y chromium-chromedriver chromium-browser ffmpeg libsm6 libxext6 libxrender-dev
+          sudo ln -sf /usr/bin/chromium-browser /usr/bin/google-chrome
+          # Ensure chromedriver is on PATH
+          sudo ln -sf /usr/bin/chromedriver /usr/bin/chrome-driver || true
       
       - name: Install Python dependencies
         run: |
@@ -36,6 +39,7 @@ jobs:
       
       - name: Run script
         env:
+          CHROME_BIN: /usr/bin/chromium-browser
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
