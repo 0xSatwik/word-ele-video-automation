@@ -1,13 +1,13 @@
 import os
 import time
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 from playwright.sync_api import sync_playwright
 import io
 import numpy as np
 from PIL import Image
-from moviepy.editor import VideoFileClip
+from moviepy.editor import VideoFileClip, ImageClip, concatenate_videoclips
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -169,13 +169,21 @@ api_url = 'https://wordle-api.litebloggingpro.workers.dev/api/today'
 try:
     response = requests.get(api_url)
     data = response.json()
-    video_date = datetime.strptime(data['date'], '%Y-%m-%d').strftime('%B %d, %Y')
+    # Parse and format date properly
+    puzzle_date_obj = datetime.strptime(data['date'], '%Y-%m-%d')
+    video_date = puzzle_date_obj.strftime('%B %d, %Y')  # e.g., "January 12, 2026"
+    video_date_short = puzzle_date_obj.strftime('%d %b %Y')  # e.g., "12 Jan 2026"
     puzzle_date = data['date']
+    puzzle_number = data.get('days_since_launch', '')
     print(f"Puzzle Date: {puzzle_date}")
+    print(f"Formatted Date: {video_date}")
 except Exception as e:
     print(f"Error fetching puzzle info: {e}")
-    video_date = datetime.now().strftime('%B %d, %Y')
-    puzzle_date = datetime.now().strftime('%Y-%m-%d')
+    puzzle_date_obj = datetime.now()
+    video_date = puzzle_date_obj.strftime('%B %d, %Y')
+    video_date_short = puzzle_date_obj.strftime('%d %b %Y')
+    puzzle_date = puzzle_date_obj.strftime('%Y-%m-%d')
+    puzzle_number = ''
 
 # Step 2: Build the word tree
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -365,17 +373,34 @@ with sync_playwright() as p:
     
     print(f"Video recorded to: {recorded_video_path}")
 
-# Convert webm to mp4 for YouTube
-print("Converting video format...")
+# Convert webm to mp4 and add intro
+print("Processing video with intro...")
 try:
-    clip = VideoFileClip(recorded_video_path)
-    clip.write_videofile(final_video_file, codec='libx264', audio=False)
-    clip.close()
+    # Load the gameplay video
+    gameplay_clip = VideoFileClip(recorded_video_path)
+    
+    # Create intro from image (3 seconds)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    intro_image_path = os.path.join(base_dir, 'intro.png')
+    
+    if os.path.exists(intro_image_path):
+        intro_clip = ImageClip(intro_image_path).set_duration(4).resize(gameplay_clip.size)
+        # Combine intro + gameplay
+        final_clip = concatenate_videoclips([intro_clip, gameplay_clip], method="compose")
+        print("Added intro to video")
+    else:
+        print("Intro image not found, using gameplay only")
+        final_clip = gameplay_clip
+    
+    final_clip.write_videofile(final_video_file, codec='libx264', audio=False, fps=24)
+    final_clip.close()
+    gameplay_clip.close()
+    
     # Clean up webm
     if os.path.exists(recorded_video_path):
         os.remove(recorded_video_path)
 except Exception as e:
-    print(f"Video conversion error: {e}")
+    print(f"Video processing error: {e}")
     final_video_file = recorded_video_path
 
 # ============================================================================
@@ -397,11 +422,33 @@ if creds and creds.expired and creds.refresh_token:
 
 youtube = build('youtube', 'v3', credentials=creds)
 
+# SEO-optimized title and description
+video_title = f"Wordle {video_date} Answer | Today's Wordle Solution & Hints"
+
+video_description = f"""🟩 Wordle Answer for {video_date}
+
+Watch how to solve today's Wordle puzzle step by step! Learn the best strategy to crack the daily Wordle.
+
+🔗 Try our FREE Wordle Solver: https://WordSolverX.com/wordle-solver
+Solve ANY Wordle game in seconds with our intelligent word elimination tool!
+
+📅 Puzzle Date: {video_date}
+
+⭐ Like & Subscribe for daily Wordle solutions!
+
+#Wordle #WordleAnswer #Wordle{puzzle_date.replace('-', '')} #TodaysWordle #WordleSolution #WordleHints #NYTWordle #DailyWordle #WordGame #PuzzleGames
+"""
+
 body = {
     'snippet': {
-        'title': f'Daily Wordle Solution - {video_date}',
-        'description': 'Automated Wordle gameplay using intelligent word elimination. #Wordle #NYTGames',
-        'tags': ['Wordle', 'Daily Puzzle', 'NYT', 'Word Game', 'Puzzle Solver'],
+        'title': video_title,
+        'description': video_description,
+        'tags': [
+            'Wordle', 'Wordle Answer', 'Wordle Today', f'Wordle {video_date_short}',
+            'Wordle Solution', 'Wordle Hints', 'Daily Wordle', 'NYT Wordle',
+            'Word Game', 'Puzzle', 'Wordle Solver', 'How to Solve Wordle',
+            'Wordle Strategy', 'Wordle Tips', f'Wordle {puzzle_date}'
+        ],
         'categoryId': '20'
     },
     'status': {'privacyStatus': 'public'}

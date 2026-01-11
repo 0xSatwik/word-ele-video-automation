@@ -2,7 +2,7 @@ name: Daily Wordle Video
 
 on:
   schedule:
-    - cron: '0 5 * * *'  # Daily at 5:00 UTC (~10:30 AM IST)
+    - cron: '30 18 * * *'  # Daily at 18:30 UTC (midnight IST - India gets new Wordle first)
   workflow_dispatch:     # Allows manual trigger
 
 jobs:
