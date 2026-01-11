@@ -117,15 +117,27 @@ class Node:
 
 def apply_result(attempt, result, tree):
     """Apply feedback to prune the word tree."""
+    # First, identify which letters are "confirmed" present (Green or Yellow)
+    present_letters = set()
+    for i in range(len(attempt)):
+        if result[i] != '0':
+            present_letters.add(attempt[i].lower())
+
     for i in range(len(attempt)):
         letter = attempt[i].lower()
         if result[i] == '2':
             tree.isolate(letter, i)
-        elif result[i] == '0':
-            tree.remove(letter)
         elif result[i] == '1':
             tree.remove(letter, i)
             tree.check_leaves(letter)
+        elif result[i] == '0':
+            if letter in present_letters:
+                # If letter is present elsewhere (Green/Yellow), this Gray mean it's not at THIS position
+                # (and potentially limits the count, but for partial logic, position remove is safe)
+                tree.remove(letter, i)
+            else:
+                # If letter is truly not in the word at all, remove it globally
+                tree.remove(letter)
 
 
 def build_word_tree(word_file_path):
