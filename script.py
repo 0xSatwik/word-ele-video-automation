@@ -7,6 +7,9 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+import io
+import numpy as np
+from PIL import Image
 from moviepy.editor import ImageSequenceClip
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -79,7 +82,9 @@ frames.extend([driver.get_screenshot_as_png()] * 30)
 driver.quit()
 
 # Step 3: Compile frames into video with MoviePy
-clip = ImageSequenceClip([frames[i] for i in range(len(frames))], fps=10)  # 10 FPS for smooth video
+# Convert PNG bytes to numpy arrays for MoviePy
+np_frames = [np.array(Image.open(io.BytesIO(frame))) for frame in frames]
+clip = ImageSequenceClip(np_frames, fps=10)  # 10 FPS for smooth video
 video_file = f'wordle_{data["date"]}.mp4'
 clip.write_videofile(video_file, codec='libx264')
 

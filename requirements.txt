@@ -1,0 +1,11 @@
+selenium
+requests
+moviepy==1.0.3
+imageio>=2.5.0
+imageio-ffmpeg
+decorator>=4.3.0
+tqdm>=4.0.0
+Pillow>=7.0.0
+numpy>=1.18.1
+google-api-python-client
+google-auth-oauthlib
