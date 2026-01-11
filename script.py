@@ -1,7 +1,7 @@
 import os
 import time
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import requests
 from playwright.sync_api import sync_playwright
 import io
@@ -164,26 +164,23 @@ def human_type(page, text, delay_min=0.08, delay_max=0.25):
 # MAIN SCRIPT
 # ============================================================================
 
-# Step 1: Fetch daily Wordle metadata from API
-api_url = 'https://wordle-api.litebloggingpro.workers.dev/api/today'
-try:
-    response = requests.get(api_url)
-    data = response.json()
-    # Parse and format date properly
-    puzzle_date_obj = datetime.strptime(data['date'], '%Y-%m-%d')
-    video_date = puzzle_date_obj.strftime('%B %d, %Y')  # e.g., "January 12, 2026"
-    video_date_short = puzzle_date_obj.strftime('%d %b %Y')  # e.g., "12 Jan 2026"
-    puzzle_date = data['date']
-    puzzle_number = data.get('days_since_launch', '')
-    print(f"Puzzle Date: {puzzle_date}")
-    print(f"Formatted Date: {video_date}")
-except Exception as e:
-    print(f"Error fetching puzzle info: {e}")
-    puzzle_date_obj = datetime.now()
-    video_date = puzzle_date_obj.strftime('%B %d, %Y')
-    video_date_short = puzzle_date_obj.strftime('%d %b %Y')
-    puzzle_date = puzzle_date_obj.strftime('%Y-%m-%d')
-    puzzle_number = ''
+# Step 1: Calculate Date (Strictly IST for Indian Audience)
+# We want the video to represent the "Day" in India.
+# If running at 18:32 UTC (00:02 IST), we want the NEW day.
+# If running manually at 23:00 IST, we want the CURRENT day.
+# UTC + 5:30 always gives the correct "Local Date" in India.
+
+utc_now = datetime.now(timezone.utc)
+ist_now = utc_now + timedelta(hours=5, minutes=30)
+
+video_date = ist_now.strftime('%B %d, %Y')  # e.g., "January 12, 2026"
+video_date_short = ist_now.strftime('%d %b %Y')  # e.g., "12 Jan 2026"
+puzzle_date = ist_now.strftime('%Y-%m-%d')  # 2026-01-12
+
+print(f"UTC Time: {utc_now}")
+print(f"IST Time: {ist_now}")
+print(f"Puzzle Date (Target): {puzzle_date}")
+print(f"Formatted Date: {video_date}")
 
 # Step 2: Build the word tree
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -212,12 +209,17 @@ with sync_playwright() as p:
         ]
     )
     
-    # Create context with video recording enabled
+    # Create context with video recording enabled AND Indian Location Simulation
+    # This ensures we get the "new day" puzzle if running after midnight IST
     context = browser.new_context(
         viewport={'width': 1920, 'height': 1080},
         record_video_dir='.',
         record_video_size={'width': 1920, 'height': 1080},
         user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        timezone_id='Asia/Kolkata',
+        locale='en-IN',
+        geolocation={'latitude': 28.6139, 'longitude': 77.2090}, # New Delhi
+        permissions=['geolocation']
     )
     
     # Hide automation
@@ -379,17 +381,23 @@ try:
     # Load the gameplay video
     gameplay_clip = VideoFileClip(recorded_video_path)
     
-    # Create intro from image (3 seconds)
+    # Create intro from image (4 seconds)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     intro_image_path = os.path.join(base_dir, 'intro.png')
     
+    print(f"Looking for intro image at: {intro_image_path}")
     if os.path.exists(intro_image_path):
-        intro_clip = ImageClip(intro_image_path).set_duration(4).resize(gameplay_clip.size)
+        # Create ImageClip
+        intro_clip = ImageClip(intro_image_path).set_duration(4)
+        # Resize to match gameplay video exactly
+        intro_clip = intro_clip.resize(width=1920, height=1080)
+        
         # Combine intro + gameplay
         final_clip = concatenate_videoclips([intro_clip, gameplay_clip], method="compose")
-        print("Added intro to video")
+        print("Added intro to video successfully")
     else:
-        print("Intro image not found, using gameplay only")
+        print("WARNING: Intro image not found! Using gameplay only.")
+        print(f"Current Directory Contents: {os.listdir(base_dir)}")
         final_clip = gameplay_clip
     
     final_clip.write_videofile(final_video_file, codec='libx264', audio=False, fps=24)
