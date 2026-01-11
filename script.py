@@ -7,6 +7,9 @@ from playwright.sync_api import sync_playwright
 import io
 import numpy as np
 from PIL import Image
+# Monkey patch for Pillow 10+ compatibility (removed ANTIALIAS)
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.LANCZOS
 from moviepy.editor import VideoFileClip, ImageClip, concatenate_videoclips
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
@@ -397,7 +400,7 @@ with sync_playwright() as p:
         
         try:
             apply_result(best_word, feedback, solver_tree)
-            remaining = solver_tree.child_word_count
+            remaining = max(0, solver_tree.child_word_count) # Prevent negative counts in display
             print(f"After pruning: {remaining} words remaining")
             
             if remaining == 0:
@@ -519,6 +522,16 @@ body = {
 }
 
 media = MediaFileUpload(final_video_file, mimetype='video/mp4', resumable=True)
-request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
-response = request.execute()
-print(f'✅ Video uploaded: https://youtu.be/{response["id"]}')
+try:
+    request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+    response = request.execute()
+    print(f'✅ Video uploaded: https://youtu.be/{response["id"]}')
+except Exception as e:
+    if "uploadLimitExceeded" in str(e):
+        print("\n⚠️ YouTube Upload Limit Exceeded for today.")
+        print(f"The video file '{final_video_file}' has been saved locally.")
+        print("Please upload it manually later.")
+    else:
+        print(f"\n❌ Error uploading to YouTube: {e}")
+        print(f"The video file '{final_video_file}' is saved locally.")
+```
