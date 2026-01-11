@@ -1,0 +1,33 @@
+name: Daily Wordle Video
+
+on:
+  schedule:
+    - cron: '0 5 * * *'  # Daily at 5:00 UTC (adjust to after Wordle reset, e.g., 5 AM UTC ~ midnight EST)
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y chromium-chromedriver ffmpeg  # For Selenium and video encoding
+      
+      - name: Install Python dependencies
+        run: |
+          pip install selenium requests moviepy google-api-python-client google-auth-oauthlib
+      
+      - name: Run script
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: python script.py
