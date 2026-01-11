@@ -2,8 +2,8 @@ name: Daily Wordle Video
 
 on:
   schedule:
-    - cron: '0 5 * * *'  # Daily at 5:00 UTC
-  workflow_dispatch:
+    - cron: '0 5 * * *'  # Daily at 5:00 UTC (~10:30 AM IST)
+  workflow_dispatch:     # Allows manual trigger
 
 jobs:
   build:
@@ -11,10 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Python 3.11  # ← Changed from 3.12
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'  # Most stable for MoviePy right now
+          python-version: '3.11'
       
       - name: Install system dependencies
         run: |
@@ -27,21 +27,21 @@ jobs:
           pip install --no-cache-dir \
             selenium \
             requests \
-            moviepy==1.0.3 \          # ← Fixed version that still has moviepy.editor
+            moviepy==1.0.3 \
             imageio>=2.5.0 \
             imageio-ffmpeg \
             decorator>=4.3.0 \
             tqdm>=4.0.0 \
-            pillow>=7.0.0 \
+            Pillow>=7.0.0 \
             numpy>=1.18.1 \
             google-api-python-client \
             google-auth-oauthlib
       
-      - name: Verify MoviePy import
+      - name: Verify imports & versions
         run: |
           ffmpeg -version
           python -c "import moviepy; print('MoviePy version:', moviepy.__version__)"
-          python -c "from moviepy.editor import ImageSequenceClip; print('Successfully imported ImageSequenceClip')"
+          python -c "from moviepy.editor import ImageSequenceClip; print('ImageSequenceClip imported OK')"
       
       - name: Run script
         env:
