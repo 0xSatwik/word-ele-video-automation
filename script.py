@@ -182,16 +182,47 @@ if solver_tree is None or solver_tree.child_word_count == 0:
     print("ERROR: Failed to build word tree. Cannot proceed.")
     exit(1)
 
-# Step 3: Set up headless Selenium
+# Step 3: Set up headless Selenium with anti-detection measures
 options = Options()
-options.add_argument('--headless')
+options.add_argument('--headless=new')  # New headless mode (less detectable)
 options.add_argument('--no-sandbox')
 options.add_argument('--disable-dev-shm-usage')
+options.add_argument('--disable-blink-features=AutomationControlled')  # Hide automation
+options.add_argument('--disable-infobars')
+options.add_argument('--disable-extensions')
+options.add_argument('--disable-gpu')
+options.add_argument('--window-size=1920,1080')
+
+# Realistic user agent to avoid detection
+options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+# Exclude automation switches
+options.add_experimental_option('excludeSwitches', ['enable-automation'])
+options.add_experimental_option('useAutomationExtension', False)
+
 if os.environ.get('CHROME_BIN'):
     options.binary_location = os.environ['CHROME_BIN']
 
 driver = webdriver.Chrome(options=options)
+
+# Execute stealth scripts to hide webdriver presence
+driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+    'source': '''
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5]
+        });
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['en-US', 'en']
+        });
+        window.chrome = { runtime: {} };
+    '''
+})
+
 driver.set_window_size(1920, 1080)
+print("Opening NYT Wordle...")
 driver.get('https://www.nytimes.com/games/wordle/index.html')
 
 # Wait for page load

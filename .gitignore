@@ -2,3 +2,4 @@ token.json
 client_secrets_web.json
 client_secrets.json
 /wordle-solver/
+/unwordle/
