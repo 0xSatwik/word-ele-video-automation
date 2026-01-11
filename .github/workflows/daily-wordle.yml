@@ -11,12 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Set up Python
+      - name: Set up Python 3.11  # ← Changed from 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'  # Most stable for MoviePy right now
       
-      - name: Install system dependencies (including ffmpeg)
+      - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y chromium-chromedriver chromium-browser ffmpeg libsm6 libxext6 libxrender-dev
@@ -27,17 +27,21 @@ jobs:
           pip install --no-cache-dir \
             selenium \
             requests \
-            moviepy \
-            imageio[ffmpeg] \
+            moviepy==1.0.3 \          # ← Fixed version that still has moviepy.editor
+            imageio>=2.5.0 \
+            imageio-ffmpeg \
+            decorator>=4.3.0 \
+            tqdm>=4.0.0 \
+            pillow>=7.0.0 \
+            numpy>=1.18.1 \
             google-api-python-client \
-            google-auth-oauthlib \
-            opencv-python-headless
+            google-auth-oauthlib
       
-      - name: Verify installations
+      - name: Verify MoviePy import
         run: |
           ffmpeg -version
           python -c "import moviepy; print('MoviePy version:', moviepy.__version__)"
-          python -c "from moviepy.editor import ImageSequenceClip; print('ImageSequenceClip imported successfully')"
+          python -c "from moviepy.editor import ImageSequenceClip; print('Successfully imported ImageSequenceClip')"
       
       - name: Run script
         env:
