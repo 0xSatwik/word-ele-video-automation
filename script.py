@@ -329,45 +329,57 @@ with sync_playwright() as p:
             return None
     
     def clean_up_ui(page):
-        """Hide specific popups and overlays to keep the video clean."""
+        """Hide specific popups and overlays using targeted locators."""
         print("Cleaning up UI (hiding popups)...")
         try:
-            page.evaluate("""
-                () => {
-                    const terms = ["Create a free account", "Log in", "Subscribe", "bot", "suspect", "blocked"];
-                    
-                    const hide = (el) => {
-                        if (el) {
-                            el.style.display = 'none';
-                            el.style.visibility = 'hidden';
-                            el.style.opacity = '0';
-                        }
-                    };
-
-                    // 1. Hide Standard Modals (Dialogs)
-                    const modals = document.querySelectorAll('div[role="dialog"], div[class*="Modal"], div[class*="modal"]');
-                    modals.forEach(m => {
-                        // Check if it contains relevant text or is just a generic completion modal
-                        // Actually, we want to hide ALL modals at the end so we can see the board
-                        hide(m);
-                    });
-                    
-                    // 2. Hide specific overlays containing text
-                    const allDivs = document.querySelectorAll('div, secion, aside');
-                    for (let el of allDivs) {
-                        const style = window.getComputedStyle(el);
-                        if (style.position === 'fixed' || style.position === 'absolute' || style.zIndex > 100) {
-                             if (el.innerText && terms.some(term => el.innerText.includes(term))) {
-                                hide(el);
+            # 1. Hide "Create a free account" / Login modals
+            # We look for the specific text, then find the closest modal/dialog wrapper to hide
+            targets = [
+                "Create a free account",
+                "Log In",
+                "Subscribe",
+                "You have been blocked",
+                "suspect that you are a bot"
+            ]
+            
+            for text in targets:
+                try:
+                    # Find element containing text
+                    element = page.get_by_text(text, exact=False).first
+                    if element.is_visible():
+                        print(f"Found blocking element with text: '{text}'")
+                        # Evaluate JS to hide the closest parent dialog or absolute overlay
+                        element.evaluate("""el => {
+                            const modal = el.closest('div[role="dialog"]') || el.closest('.Modal-module_modalOverlay__eaFhH') || el.closest('div[class*="modal"]');
+                            if (modal) {
+                                modal.style.display = 'none';
+                                modal.style.visibility = 'hidden';
+                            } else {
+                                // Fallback: hide the element itself and its immediate parents if they are overlays
+                                el.style.display = 'none';
+                                let parent = el.parentElement;
+                                while (parent && (window.getComputedStyle(parent).position === 'absolute' || window.getComputedStyle(parent).position === 'fixed')) {
+                                    parent.style.display = 'none';
+                                    parent = parent.parentElement;
+                                }
                             }
-                        }
-                    }
-                    
-                    // 3. Remove specifically the "Subscribe" bottom banner if present
-                    const bottomBanner = document.querySelector('div[data-testid="bottom-banner"]');
-                    hide(bottomBanner);
-                }
-            """)
+                        }""")
+                except Exception as e:
+                    # Element not found or other minor error, ignore
+                    pass
+
+            # 2. Hide Bottom Banner specifically
+            try:
+                page.evaluate("document.querySelector('div[data-testid=\"bottom-banner\"]')?.remove()")
+            except:
+                pass
+            
+            # 3. Generic sweep for NYT "Toast" messages
+            try:
+                page.evaluate("document.querySelectorAll('div[data-testid=\"toast-message\"]').forEach(el => el.style.display = 'none')")
+            except:
+                pass
+
             human_delay(0.5, 1.0)
         except Exception as e:
             print(f"Error cleaning UI: {e}")
