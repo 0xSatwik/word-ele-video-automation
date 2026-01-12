@@ -168,6 +168,35 @@ def human_delay(min_seconds=1, max_seconds=3):
     return delay
 
 
+
+def get_random_starter():
+    """Return a random effective starting word."""
+    starters = [
+        "ADIEU", "RAISE", "STARE", "ROATE", "ARISE", 
+        "TRACE", "CRATE", "SALET", "SLATE", "IRATE"
+    ]
+    return random.choice(starters)
+
+
+def get_backup_solution(date_str):
+    """
+    Fetch the solution from the external API for the given date.
+    API is expected to return JSON with a 'solution' field.
+    """
+    try:
+        api_url = f"https://wordle-api.litebloggingpro.workers.dev/api/date/{date_str}"
+        print(f"Fetching backup solution from: {api_url}")
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        solution = data.get("solution")
+        if solution:
+            return solution.lower()
+    except Exception as e:
+        print(f"Error fetching backup solution: {e}")
+    return None
+
+
 def human_type(page, text, delay_min=0.08, delay_max=0.25):
     """Type text with human-like delays between keystrokes."""
     for char in text:
@@ -423,10 +452,26 @@ with sync_playwright() as p:
     
     solved = False
     for round_num in range(6):
-        best_word = solver_tree.pick_best_word()
+        if round_num == 0:
+            # Round 1: Use a random effective starter instead of Trie default
+            print("Choosing random starting word...")
+            best_word = get_random_starter().lower()
+        elif round_num == 5:
+            # Round 6 (Last Chance): Try to get guaranteed answer from API
+            print("Last attempt! Checking API for backup solution...")
+            backup_word = get_backup_solution(puzzle_date)
+            if backup_word:
+                print(f"API provided solution: {backup_word}")
+                best_word = backup_word
+            else:
+                print("API failed, using best solver guess.")
+                best_word = solver_tree.pick_best_word()
+        else:
+            best_word = solver_tree.pick_best_word()
+            
         possible_words = solver_tree.child_word_count
         print(f"\n=== Round {round_num + 1} ===")
-        print(f"Best guess: {best_word.upper()} (from {possible_words} possible words)")
+        print(f"Best guess: {best_word.upper()} (from {possible_words} if applicable)")
         
         type_word(best_word)
         
