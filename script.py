@@ -237,6 +237,11 @@ with sync_playwright() as p:
         permissions=['geolocation']
     )
     
+    # Record start time for trimming
+    video_start_time = time.time()
+    start_trim = 0
+    end_trim = None
+    
     # Hide automation
     context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -252,7 +257,12 @@ with sync_playwright() as p:
     
     # Wait for page to load like a human would
     print("Waiting for page to load...")
-    human_delay(5, 8)
+    human_delay(2, 3)
+    
+    # Mark the effective start of the video (ensure we capture the Play click)
+    # Subtracting a small buffer to ensure we don't clip the start of the action
+    start_trim = max(0, (time.time() - video_start_time) - 0.5)
+    print(f"Start trim set to: {start_trim:.2f} seconds")
     
     # Click Play button
     try:
@@ -264,6 +274,8 @@ with sync_playwright() as p:
             human_delay(2, 4)
     except Exception as e:
         print(f"Play button not found: {e}")
+    
+    # (Removed previous late start_trim logic)
     
     # Close modal if present
     try:
@@ -367,12 +379,21 @@ with sync_playwright() as p:
                                 modal.style.display = 'none';
                                 modal.style.visibility = 'hidden';
                             } else {
-                                // Fallback: hide the element itself and its immediate parents if they are overlays
+                                // Fallback: Traverse up to find blocking overlay
                                 el.style.display = 'none';
                                 let parent = el.parentElement;
-                                while (parent && (window.getComputedStyle(parent).position === 'absolute' || window.getComputedStyle(parent).position === 'fixed')) {
-                                    parent.style.display = 'none';
+                                let count = 0;
+                                while (parent && parent.tagName !== 'BODY' && count < 10) {
+                                    const style = window.getComputedStyle(parent);
+                                    if (style.position === 'fixed' || style.position === 'absolute' || parseInt(style.zIndex) > 50) {
+                                        parent.style.display = 'none';
+                                        parent.style.visibility = 'hidden';
+                                    }
+                                    if (parent.innerText.includes('You have been blocked')) {
+                                         parent.style.display = 'none';
+                                    }
                                     parent = parent.parentElement;
+                                    count++;
                                 }
                             }
                         }""")
@@ -418,21 +439,25 @@ with sync_playwright() as p:
         if feedback == "22222":
             print(f"\n🎉 SOLVED! The word was: {best_word.upper()}")
             solved = True
-            clean_up_ui(page) # Hide popups so we can see the board clearly
-            human_delay(4, 6) # Longer delay to show the winning board
+            
+            # Stop IMMEDIATELY to capture "all green" but cutoff before "Blocked" popup
+            # We wait 0.5s to ensure the visual "Green" is rendered on the video
+            human_delay(0.5, 0.5)
+            end_trim = time.time() - video_start_time
+            print(f"End trim set to: {end_trim:.2f} seconds")
             break
         
         try:
             apply_result(best_word, feedback, solver_tree)
             remaining = max(0, solver_tree.child_word_count) # Prevent negative counts in display
-            print(f"After pruning: {remaining} words remaining")
-            
             if remaining == 0:
                 print("ERROR: No words remaining!")
                 break
         except Exception as e:
             print(f"Error applying result: {e}")
             break
+    
+    # (Removed redundant if solved block)
     
     if not solved:
         print("Could not solve in 6 attempts.")
@@ -458,45 +483,94 @@ try:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     intro_image_path = os.path.join(base_dir, 'intro.png')
     
-    print(f"Looking for intro image at: {intro_image_path}")
-    if os.path.exists(intro_image_path):
-        # Create ImageClip
-        intro_clip = ImageClip(intro_image_path).set_duration(5).set_fps(24)
-        # Resize to match gameplay video exactly
-        intro_clip = intro_clip.resize(width=1920, height=1080)
-        
-        # Combine intro + gameplay
-        final_clip = concatenate_videoclips([intro_clip, gameplay_clip], method="compose")
-        print("Added intro to video successfully")
-    else:
-        print("WARNING: Intro image not found! Using gameplay only.")
-        print(f"Current Directory Contents: {os.listdir(base_dir)}")
-        final_clip = gameplay_clip
+    print(f"Looking for intro video at: {os.path.join(base_dir, 'intro.mp4')}")
     
-        # Add background music if available
+    # Separate Intro from Main Content (Gameplay + Outro)
+    # This allows us to apply background music ONLY to the Main Content
+    
+    intro_clip = None
+    content_clips = []
+
+    # 1. INTRO
+    intro_video_path = os.path.join(base_dir, 'intro.mp4')
+    if os.path.exists(intro_video_path):
+        print("Found intro.mp4, preparing intro...")
+        intro_clip = VideoFileClip(intro_video_path)
+        intro_clip = intro_clip.resize(width=1920, height=1080)
+    else:
+        # Fallback
+        intro_image_path = os.path.join(base_dir, 'intro.png')
+        if os.path.exists(intro_image_path):
+             print("Found intro.png (fallback), preparing intro...")
+             intro_clip = ImageClip(intro_image_path).set_duration(5).set_fps(24).resize(width=1920, height=1080)
+
+    # 2. GAMEPLAY
+    # User Request: Keep start trim logic, but for end trim, simply cut the last 4 seconds of the video
+    # This ensures we lop off the "Blocked" popup that appears at the very end
+    video_end_time = gameplay_clip.duration - 4.0
+    
+    if start_trim > 0 and video_end_time > start_trim:
+        print(f"Trimming video: Start={start_trim:.2f}s, End={video_end_time:.2f}s (duration-3s)")
+        gameplay_clip = gameplay_clip.subclip(start_trim, video_end_time)
+    else:
+        # Fallback if start trim is invalid or video too short, just cut end
+        if video_end_time > 0:
+             print(f"Trimming video end only: End={video_end_time:.2f}s")
+             gameplay_clip = gameplay_clip.subclip(0, video_end_time)
+    
+    content_clips.append(gameplay_clip)
+
+    # 3. OUTRO
+    outro_image_path = os.path.join(base_dir, 'outro.png')
+    if os.path.exists(outro_image_path):
+        print(f"Found outro.png, adding to content...")
+        outro_clip = ImageClip(outro_image_path).set_duration(5).set_fps(24).resize(width=1920, height=1080)
+        content_clips.append(outro_clip)
+
+    # 4. PREPARE MAIN CONTENT (Gameplay + Outro)
+    if content_clips:
+        main_content_clip = concatenate_videoclips(content_clips, method="compose")
+    else:
+        main_content_clip = None
+
+    # 5. ADD MUSIC TO MAIN CONTENT
+    if main_content_clip:
         songs = [f for f in os.listdir(base_dir) if f.endswith('.mp3') and f.startswith('song')]
         if songs:
             selected_song = random.choice(songs)
             song_path = os.path.join(base_dir, selected_song)
-            print(f"Adding background music: {selected_song}")
+            print(f"Adding background music to main content: {selected_song}")
             
             try:
                 audio_clip = AudioFileClip(song_path)
-                # Loop audio if shorter than video, or cut if longer to match exact duration
-                if audio_clip.duration < final_clip.duration:
-                    # afx.audio_loop creates a composite audio clip that loops
-                    final_audio = afx.audio_loop(audio_clip, duration=final_clip.duration)
+                # Loop audio if shorter than content, or cut if different
+                if audio_clip.duration < main_content_clip.duration:
+                    final_audio = afx.audio_loop(audio_clip, duration=main_content_clip.duration)
                 else:
-                    final_audio = audio_clip.subclip(0, final_clip.duration)
+                    final_audio = audio_clip.subclip(0, main_content_clip.duration)
                 
-                final_clip = final_clip.set_audio(final_audio)
-                print("Audio track set successfully.")
+                # Set audio to main content
+                main_content_clip = main_content_clip.set_audio(final_audio)
+                print("Audio track set successfully on gameplay/outro.")
             except Exception as e:
                 print(f"Error processing audio: {e}")
         else:
-            print("No background music found (looked for song*.mp3).")
+            print("No background music found.")
 
-        final_clip.write_videofile(final_video_file, codec='libx264', audio_codec='aac', fps=24)
+    # 6. FINAL ASSEMBLY (Intro + Main Content)
+    final_parts = []
+    if intro_clip:
+        final_parts.append(intro_clip)
+    if main_content_clip:
+        final_parts.append(main_content_clip)
+        
+    if final_parts:
+        final_clip = concatenate_videoclips(final_parts, method="compose")
+        print("Final video assembled.")
+    else:
+        final_clip = gameplay_clip # Fallback if everything failed
+
+    final_clip.write_videofile(final_video_file, codec='libx264', audio_codec='aac', fps=24)
     final_clip.close()
     gameplay_clip.close()
     
