@@ -10,7 +10,7 @@ from PIL import Image
 # Monkey patch for Pillow 10+ compatibility (removed ANTIALIAS)
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
-from moviepy.editor import VideoFileClip, ImageClip, concatenate_videoclips
+from moviepy.editor import VideoFileClip, ImageClip, concatenate_videoclips, AudioFileClip, afx
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -473,7 +473,30 @@ try:
         print(f"Current Directory Contents: {os.listdir(base_dir)}")
         final_clip = gameplay_clip
     
-    final_clip.write_videofile(final_video_file, codec='libx264', audio=False, fps=24)
+        # Add background music if available
+        songs = [f for f in os.listdir(base_dir) if f.endswith('.mp3') and f.startswith('song')]
+        if songs:
+            selected_song = random.choice(songs)
+            song_path = os.path.join(base_dir, selected_song)
+            print(f"Adding background music: {selected_song}")
+            
+            try:
+                audio_clip = AudioFileClip(song_path)
+                # Loop audio if shorter than video, or cut if longer to match exact duration
+                if audio_clip.duration < final_clip.duration:
+                    # afx.audio_loop creates a composite audio clip that loops
+                    final_audio = afx.audio_loop(audio_clip, duration=final_clip.duration)
+                else:
+                    final_audio = audio_clip.subclip(0, final_clip.duration)
+                
+                final_clip = final_clip.set_audio(final_audio)
+                print("Audio track set successfully.")
+            except Exception as e:
+                print(f"Error processing audio: {e}")
+        else:
+            print("No background music found (looked for song*.mp3).")
+
+        final_clip.write_videofile(final_video_file, codec='libx264', audio_codec='aac', fps=24)
     final_clip.close()
     gameplay_clip.close()
     
