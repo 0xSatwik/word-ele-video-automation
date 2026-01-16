@@ -70,6 +70,10 @@ def upload_to_pinterest(video_path, title, permalink):
     client_id = os.environ.get('PINTEREST_CLIENT_ID', '').strip()
     client_secret = os.environ.get('PINTEREST_CLIENT_SECRET', '').strip()
     board_id = os.environ.get('PINTEREST_BOARD_ID', '').strip()
+    use_sandbox = os.environ.get('PINTEREST_USE_SANDBOX', 'false').lower() == 'true'
+    
+    # Set base URL based on sandbox mode
+    base_url = "https://api-sandbox.pinterest.com" if use_sandbox else "https://api.pinterest.com"
     
     # Fallback to direct access token if refresh token is missing (for backwards compatibility)
     access_token = os.environ.get('PINTEREST_ACCESS_TOKEN', '').strip()
@@ -80,12 +84,12 @@ def upload_to_pinterest(video_path, title, permalink):
 
     # Step 0: Get Fresh Access Token using Refresh Token
     if refresh_token and client_id and client_secret:
-        print("Refreshing Pinterest Access Token...")
+        print(f"Refreshing Pinterest Access Token ({'Sandbox' if use_sandbox else 'Production'})...")
         try:
             auth_str = f"{client_id}:{client_secret}"
             encoded_auth = base64.b64encode(auth_str.encode()).decode()
             
-            token_url = "https://api.pinterest.com/v5/oauth/token"
+            token_url = f"{base_url}/v5/oauth/token"
             headers = {
                 "Authorization": f"Basic {encoded_auth}",
                 "Content-Type": "application/x-www-form-urlencoded"
@@ -107,7 +111,7 @@ def upload_to_pinterest(video_path, title, permalink):
         print("Pinterest Access Token missing. Skipping upload.")
         return None
 
-    print("Uploading Video Pin to Pinterest...")
+    print(f"Uploading Video Pin to Pinterest ({'Sandbox' if use_sandbox else 'Production'})...")
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json"
@@ -115,7 +119,7 @@ def upload_to_pinterest(video_path, title, permalink):
     
     # Step 1: Register media
     try:
-        register_url = "https://api.pinterest.com/v5/media"
+        register_url = f"{base_url}/v5/media"
         res = requests.post(register_url, headers=headers, json={"media_type": "video"})
         media_data = res.json()
         media_id = media_data.get("media_id")
@@ -136,7 +140,7 @@ def upload_to_pinterest(video_path, title, permalink):
         time.sleep(45) # Increased delay slightly
         
         # Step 3: Create Pin
-        pin_url = "https://api.pinterest.com/v5/pins"
+        pin_url = f"{base_url}/v5/pins"
         pin_payload = {
             "board_id": board_id,
             "media_source": {
@@ -151,7 +155,7 @@ def upload_to_pinterest(video_path, title, permalink):
         pin_res = res.json()
         if 'id' in pin_res:
              pin_id = pin_res['id']
-             print(f"✅ Pinterest Pin created successfully! Pin ID: {pin_id}")
+             print(f"✅ {'Sandbox ' if use_sandbox else ''}Pinterest Pin created successfully! Pin ID: {pin_id}")
              print(f"🔗 View on Pinterest: https://www.pinterest.com/pin/{pin_id}/")
              return pin_id
         else:
