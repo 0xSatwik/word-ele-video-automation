@@ -53,12 +53,14 @@ def upload_to_facebook(video_path, title, permalink):
         response = requests.post(url, data=payload, files=files, timeout=300)
         res_data = response.json()
         if 'id' in res_data:
-            print(f"✅ Facebook upload successful: https://www.facebook.com/watch/?v={res_data['id']}")
-            return res_data['id']
+            video_id = res_data['id']
+            print(f"✅ Facebook upload successful! Video ID: {video_id}")
+            print(f"🔗 View on Facebook: https://www.facebook.com/{page_id}/videos/{video_id}/")
+            return video_id
         else:
-            print(f"❌ Facebook upload failed: {res_data}")
+            print(f"❌ Facebook upload failed! Response: {json.dumps(res_data, indent=2)}")
     except Exception as e:
-        print(f"❌ Error uploading to Facebook: {e}")
+        print(f"❌ Error uploading to Facebook: {str(e)}")
     return None
 
 def upload_to_pinterest(video_path, title, permalink):
@@ -112,12 +114,14 @@ def upload_to_pinterest(video_path, title, permalink):
         res = requests.post(pin_url, headers=headers, json=pin_payload)
         pin_res = res.json()
         if 'id' in pin_res:
-             print(f"✅ Pinterest Pin created: https://www.pinterest.com/pin/{pin_res['id']}")
-             return pin_res['id']
+             pin_id = pin_res['id']
+             print(f"✅ Pinterest Pin created successfully! Pin ID: {pin_id}")
+             print(f"🔗 View on Pinterest: https://www.pinterest.com/pin/{pin_id}/")
+             return pin_id
         else:
-             print(f"❌ Pinterest Pin creation failed: {pin_res}")
+             print(f"❌ Pinterest Pin creation failed! Response: {json.dumps(pin_res, indent=2)}")
     except Exception as e:
-        print(f"❌ Error uploading to Pinterest: {e}")
+        print(f"❌ Error uploading to Pinterest: {str(e)}")
     return None
 
 def post_to_blogger(video_id, title, permalink, date_str):
@@ -169,12 +173,14 @@ def post_to_blogger(video_id, title, permalink, date_str):
         response = requests.post(url, headers=headers, json=payload)
         post_data = response.json()
         if 'id' in post_data:
-            print(f"✅ Blogger post created: {post_data.get('url')}")
+            post_url = post_data.get('url')
+            print(f"✅ Blogger post created successfully! Post ID: {post_data['id']}")
+            print(f"🔗 View on Blogger: {post_url}")
             return post_data['id']
         else:
-            print(f"❌ Blogger post failed: {post_data}")
+            print(f"❌ Blogger post failed! Response: {json.dumps(post_data, indent=2)}")
     except Exception as e:
-        print(f"❌ Error posting to Blogger: {e}")
+        print(f"❌ Error posting to Blogger: {str(e)}")
     return None
 
 # ============================================================================
@@ -878,8 +884,15 @@ try:
 except Exception as e:
     if "uploadLimitExceeded" in str(e):
         print("\n⚠️ YouTube Upload Limit Exceeded for today.")
+        print(f"Reason: {str(e)}")
         print(f"The video file '{final_video_file}' has been saved locally.")
         print("Please upload it manually later.")
     else:
-        print(f"\n❌ Error uploading to YouTube: {e}")
+        print(f"\n❌ Error uploading to YouTube: {str(e)}")
+        if hasattr(e, 'content'):
+            try:
+                error_details = json.loads(e.content)
+                print(f"Details: {json.dumps(error_details, indent=2)}")
+            except:
+                print(f"Raw response: {e.content}")
         print(f"The video file '{final_video_file}' is saved locally.")
