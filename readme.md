@@ -77,6 +77,54 @@ This project uses GitHub Actions to run every day:
   - Auth issues → regenerate refresh token
   - Import errors → confirm `moviepy==1.0.3` in pip install line
 
+---
+
+## Social Media Sharing (Automatic)
+
+After uploading to YouTube, the script automatically shares to:
+- **Facebook** (Video to your Page)
+- **Pinterest** (Video Pin)
+- **Blogger** (Embedded YouTube video post)
+
+### GitHub Secrets Required
+
+| Secret Name | Description | How to Get |
+|-------------|-------------|------------|
+| `YOUTUBE_CLIENT_ID` | Google OAuth Client ID | Google Cloud Console |
+| `YOUTUBE_CLIENT_SECRET` | Google OAuth Client Secret | Google Cloud Console |
+| `YOUTUBE_REFRESH_TOKEN` | YouTube API Refresh Token | Run `get_refresh_token.py` |
+| `FACEBOOK_ACCESS_TOKEN` | Facebook Page Access Token | Graph API Explorer with `publish_video` permission |
+| `PINTEREST_ACCESS_TOKEN` | Pinterest Sandbox Access Token | Run `pinterest_oauth.py`, type `yes` for Sandbox |
+| `PINTEREST_BOARD_ID` | Your Pinterest Board ID | Shown after running `pinterest_oauth.py` |
+| `PINTEREST_CLIENT_ID` | Pinterest App ID | Pinterest Developer Portal |
+| `PINTEREST_CLIENT_SECRET` | Pinterest App Secret | Pinterest Developer Portal |
+| `BLOGGER_BLOG_ID` | Your Blogger Blog ID | From Blogger URL or API |
+
+### Pinterest Notes (IMPORTANT!)
+- Your Pinterest app is currently in **Trial mode** → must use **Sandbox API**
+- `PINTEREST_USE_SANDBOX` defaults to `true` in the workflow
+- To switch to Production:
+  1. Go to [Pinterest Developer Portal](https://developers.pinterest.com/apps/)
+  2. Click **"Request Standard Access"**
+  3. Once approved, set `PINTEREST_USE_SANDBOX=false` in GitHub Secrets
+  4. Regenerate tokens with `pinterest_oauth.py` (type `no` for Production)
+
+### Local Development
+
+1. Copy `.env.example` to `.env` (or create one with the secrets above)
+2. Install: `pip install python-dotenv`
+3. Run: `python script.py`
+
+The script will:
+- Upload to YouTube if `YOUTUBE_REFRESH_TOKEN` exists
+- Share to Facebook if `FACEBOOK_ACCESS_TOKEN` exists
+- Share to Pinterest if `PINTEREST_ACCESS_TOKEN` or `PINTEREST_REFRESH_TOKEN` exists
+- Post to Blogger if YouTube upload succeeded and `BLOGGER_BLOG_ID` exists
+
+Use `SKIP_FACEBOOK=true`, `SKIP_PINTEREST=true`, or `SKIP_BLOGGER=true` in `.env` to disable specific platforms.
+
+---
+
 Happy automating! If you fork/improve this, feel free to share.
 
 Created by [Your Name / @0xSatwik] – January 2026

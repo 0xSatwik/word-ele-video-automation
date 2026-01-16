@@ -5,3 +5,5 @@ client_secrets.json
 /unwordle/
 pinterest_oauth.py
 find_pinterest_board.py
+.env
+test_pinterest_upload.py

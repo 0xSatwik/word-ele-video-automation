@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 import base64
 import time
 import random
@@ -17,6 +18,9 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
 import json
+
+# Load environment variables from .env file (for local testing)
+load_dotenv()
 
 # ============================================================================
 # SOCIAL MEDIA SHARING
@@ -66,6 +70,7 @@ def upload_to_facebook(video_path, title, permalink):
 
 def upload_to_pinterest(video_path, title, permalink):
     """Upload Video Pin to Pinterest with automatic token refresh."""
+    access_token = os.environ.get('PINTEREST_ACCESS_TOKEN', '').strip()
     refresh_token = os.environ.get('PINTEREST_REFRESH_TOKEN', '').strip()
     client_id = os.environ.get('PINTEREST_CLIENT_ID', '').strip()
     client_secret = os.environ.get('PINTEREST_CLIENT_SECRET', '').strip()
@@ -75,15 +80,14 @@ def upload_to_pinterest(video_path, title, permalink):
     # Set base URL based on sandbox mode
     base_url = "https://api-sandbox.pinterest.com" if use_sandbox else "https://api.pinterest.com"
     
-    # Fallback to direct access token if refresh token is missing (for backwards compatibility)
-    access_token = os.environ.get('PINTEREST_ACCESS_TOKEN', '').strip()
-    
     if not board_id:
         print("Pinterest Board ID missing. Skipping upload.")
         return None
 
-    # Step 0: Get Fresh Access Token using Refresh Token
-    if refresh_token and client_id and client_secret:
+    # Use access token directly if provided, otherwise try refresh token
+    if access_token:
+        print(f"Using Pinterest Access Token ({'Sandbox' if use_sandbox else 'Production'})...")
+    elif refresh_token and client_id and client_secret:
         print(f"Refreshing Pinterest Access Token ({'Sandbox' if use_sandbox else 'Production'})...")
         try:
             auth_str = f"{client_id}:{client_secret}"
@@ -103,7 +107,7 @@ def upload_to_pinterest(video_path, title, permalink):
                 access_token = res.json().get("access_token")
                 print("✅ Pinterest Access Token refreshed.")
             else:
-                print(f"⚠️ Pinterest refresh failed (using fallback): {res.text}")
+                print(f"⚠️ Pinterest refresh failed: {res.text}")
         except Exception as e:
             print(f"⚠️ Error refreshing Pinterest token: {e}")
 
@@ -162,12 +166,12 @@ def upload_to_pinterest(video_path, title, permalink):
             "board_id": board_id,
             "media_source": {
                 "source_type": "video_id",
-                "media_id": media_id
+                "media_id": media_id,
+                "cover_image_key_frame_time": 0
             },
             "title": title,
             "description": f"Wordle solution for today! Answer and hints: {permalink}",
-            "link": permalink,
-            "cover_image_key_frame_time": 0.0 # Use float
+            "link": permalink
         }
         res = requests.post(pin_url, headers=headers, json=pin_payload)
         pin_res = res.json()
@@ -852,35 +856,38 @@ except Exception as e:
     final_video_file = recorded_video_path
 
 # ============================================================================
-# YOUTUBE UPLOAD
+# UPLOAD AND SHARING
 # ============================================================================
+
+video_id = None
+video_uploaded_to_youtube = False
 
 print("\nUploading to YouTube...")
 
 if 'YOUTUBE_REFRESH_TOKEN' not in os.environ:
     print("⚠️ YOUTUBE_REFRESH_TOKEN not found in environment variables.")
     print(f"Video saved locally as: {final_video_file}")
-    print("Skipping upload.")
-    exit(0)
+    print("Skipping YouTube upload.")
+else:
+    SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+    try:
+        creds = Credentials.from_authorized_user_info({
+            'refresh_token': os.environ['YOUTUBE_REFRESH_TOKEN'],
+            'client_id': os.environ['YOUTUBE_CLIENT_ID'],
+            'client_secret': os.environ['YOUTUBE_CLIENT_SECRET'],
+            'scopes': SCOPES,
+            'token_uri': 'https://oauth2.googleapis.com/token'
+        }, SCOPES)
 
-SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
-creds = Credentials.from_authorized_user_info({
-    'refresh_token': os.environ['YOUTUBE_REFRESH_TOKEN'],
-    'client_id': os.environ['YOUTUBE_CLIENT_ID'],
-    'client_secret': os.environ['YOUTUBE_CLIENT_SECRET'],
-    'scopes': SCOPES,
-    'token_uri': 'https://oauth2.googleapis.com/token'
-}, SCOPES)
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
 
-if creds and creds.expired and creds.refresh_token:
-    creds.refresh(Request())
+        youtube = build('youtube', 'v3', credentials=creds)
 
-youtube = build('youtube', 'v3', credentials=creds)
+        # SEO-optimized title and description
+        video_title = f"Wordle {video_date} Answer | Today's Wordle Solution & Hints"
 
-# SEO-optimized title and description
-video_title = f"Wordle {video_date} Answer | Today's Wordle Solution & Hints"
-
-video_description = f"""🟩 Wordle Answer for {video_date}
+        video_description = f"""🟩 Wordle Answer for {video_date}
 
 Watch how to solve today's Wordle puzzle step by step! Learn the best strategy to crack the daily Wordle.
 
@@ -893,64 +900,68 @@ Watch how to solve today's Wordle puzzle step by step! Learn the best strategy t
 #Wordle #WordleAnswer #Wordle{puzzle_date.replace('-', '')} #TodaysWordle #WordleSolution #WordleHints #NYTWordle #DailyWordle #WordGame #PuzzleGames
 """
 
-# Read and append default description if it exists
-description_file_path = os.path.join(base_dir, 'description.txt')
-if os.path.exists(description_file_path):
-    try:
-        with open(description_file_path, 'r', encoding='utf-8') as f:
-            default_description = f.read()
-            video_description += f"\n\n{default_description}"
-        print("Appended default description from description.txt")
-    except Exception as e:
-        print(f"Warning: Could not read description.txt: {e}")
-
-body = {
-    'snippet': {
-        'title': video_title,
-        'description': video_description,
-        'tags': [
-            'Wordle', 'Wordle Answer', 'Wordle Today', f'Wordle {video_date_short}',
-            'Wordle Solution', 'Wordle Hints', 'Daily Wordle', 'NYT Wordle',
-            'Word Game', 'Puzzle', 'Wordle Solver', 'How to Solve Wordle',
-            'Wordle Strategy', 'Wordle Tips', f'Wordle {puzzle_date}'
-        ],
-        'categoryId': '20'
-    },
-    'status': {'privacyStatus': 'public'}
-}
-
-media = MediaFileUpload(final_video_file, mimetype='video/mp4', resumable=True)
-try:
-    request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
-    response = request.execute()
-    video_id = response["id"]
-    print(f'✅ Video uploaded: https://youtu.be/{video_id}')
-    
-    # SOCIAL MEDIA SHARING
-    print("\n--- Starting Social Media Sharing ---")
-    permalink = get_permalink(ist_now)
-    
-    # 1. Facebook
-    upload_to_facebook(final_video_file, video_title, permalink)
-    
-    # 2. Pinterest
-    upload_to_pinterest(final_video_file, video_title, permalink)
-    
-    # 3. Blogger
-    post_to_blogger(video_id, video_title, permalink, video_date)
-    
-except Exception as e:
-    if "uploadLimitExceeded" in str(e):
-        print("\n⚠️ YouTube Upload Limit Exceeded for today.")
-        print(f"Reason: {str(e)}")
-        print(f"The video file '{final_video_file}' has been saved locally.")
-        print("Please upload it manually later.")
-    else:
-        print(f"\n❌ Error uploading to YouTube: {str(e)}")
-        if hasattr(e, 'content'):
+        # Read and append default description if it exists
+        description_file_path = os.path.join(base_dir, 'description.txt')
+        if os.path.exists(description_file_path):
             try:
-                error_details = json.loads(e.content)
-                print(f"Details: {json.dumps(error_details, indent=2)}")
-            except:
-                print(f"Raw response: {e.content}")
-        print(f"The video file '{final_video_file}' is saved locally.")
+                with open(description_file_path, 'r', encoding='utf-8') as f:
+                    default_description = f.read()
+                    video_description += f"\n\n{default_description}"
+                print("Appended default description from description.txt")
+            except Exception as e:
+                print(f"Warning: Could not read description.txt: {e}")
+
+        body = {
+            'snippet': {
+                'title': video_title,
+                'description': video_description,
+                'tags': [
+                    'Wordle', 'Wordle Answer', 'Wordle Today', f'Wordle {video_date_short}',
+                    'Wordle Solution', 'Wordle Hints', 'Daily Wordle', 'NYT Wordle',
+                    'Word Game', 'Puzzle', 'Wordle Solver', 'How to Solve Wordle',
+                    'Wordle Strategy', 'Wordle Tips', f'Wordle {puzzle_date}'
+                ],
+                'categoryId': '20'
+            },
+            'status': {'privacyStatus': 'public'}
+        }
+
+        media = MediaFileUpload(final_video_file, mimetype='video/mp4', resumable=True)
+        request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+        response = request.execute()
+        video_id = response["id"]
+        video_uploaded_to_youtube = True
+        print(f'✅ Video uploaded: https://youtu.be/{video_id}')
+
+    except Exception as e:
+        if "uploadLimitExceeded" in str(e):
+            print("\n⚠️ YouTube Upload Limit Exceeded for today.")
+            print(f"Reason: {str(e)}")
+            print(f"The video file '{final_video_file}' has been saved locally.")
+            print("Please upload it manually later.")
+        else:
+            print(f"\n❌ Error uploading to YouTube: {str(e)}")
+            if hasattr(e, 'content'):
+                try:
+                    error_details = json.loads(e.content)
+                    print(f"Details: {json.dumps(error_details, indent=2)}")
+                except:
+                    print(f"Raw response: {e.content}")
+            print(f"The video file '{final_video_file}' is saved locally.")
+
+# --- Social Media Sharing ---
+print("\n--- Starting Social Media Sharing ---")
+permalink = get_permalink(ist_now)
+video_title = f"Wordle {video_date} Answer | Today's Wordle Solution & Hints"
+
+# 1. Facebook
+upload_to_facebook(final_video_file, video_title, permalink)
+
+# 2. Pinterest
+upload_to_pinterest(final_video_file, video_title, permalink)
+
+# 3. Blogger
+if not video_id:
+    print("⏭️ Skipping Blogger post because YouTube video_id is missing.")
+else:
+    post_to_blogger(video_id, video_title, permalink, video_date)
