@@ -70,7 +70,7 @@ def upload_to_pinterest(video_path, title, permalink):
     client_id = os.environ.get('PINTEREST_CLIENT_ID', '').strip()
     client_secret = os.environ.get('PINTEREST_CLIENT_SECRET', '').strip()
     board_id = os.environ.get('PINTEREST_BOARD_ID', '').strip()
-    use_sandbox = os.environ.get('PINTEREST_USE_SANDBOX', 'false').lower() == 'true'
+    use_sandbox = os.environ.get('PINTEREST_USE_SANDBOX', 'true').lower() == 'true'
     
     # Set base URL based on sandbox mode
     base_url = "https://api-sandbox.pinterest.com" if use_sandbox else "https://api.pinterest.com"
