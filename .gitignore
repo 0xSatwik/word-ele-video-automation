@@ -3,3 +3,5 @@ client_secrets_web.json
 client_secrets.json
 /wordle-solver/
 /unwordle/
+pinterest_oauth.py
+find_pinterest_board.py

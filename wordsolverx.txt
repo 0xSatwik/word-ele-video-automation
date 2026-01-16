@@ -1,0 +1,178 @@
+{
+  "data": [
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Gamer",
+      "category_list": [
+        {
+          "id": "471120789926333",
+          "name": "Gamer"
+        }
+      ],
+      "name": "Suduku solver",
+      "id": "965034683354556",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    },
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Gamer",
+      "category_list": [
+        {
+          "id": "471120789926333",
+          "name": "Gamer"
+        }
+      ],
+      "name": "Wordsolverx",
+      "id": "964134700097059",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    },
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Education website",
+      "category_list": [
+        {
+          "id": "2704",
+          "name": "Education website"
+        },
+        {
+          "id": "1226193487405097",
+          "name": "Escape game room"
+        }
+      ],
+      "name": "PinPoint Answer Today",
+      "id": "915698344964233",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    },
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Game publisher",
+      "category_list": [
+        {
+          "id": "866898430141631",
+          "name": "Game publisher"
+        }
+      ],
+      "name": "Crossword Solver",
+      "id": "848999374973777",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    },
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Education website",
+      "category_list": [
+        {
+          "id": "2704",
+          "name": "Education website"
+        }
+      ],
+      "name": "CryptoQuip Answers",
+      "id": "275283372335455",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    },
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Blogger",
+      "category_list": [
+        {
+          "id": "361282040719868",
+          "name": "Blogger"
+        }
+      ],
+      "name": "LiteBlogging",
+      "id": "103983478392160",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    },
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Finance",
+      "category_list": [
+        {
+          "id": "1022050661163852",
+          "name": "Finance"
+        }
+      ],
+      "name": "Cryptowalletsx",
+      "id": "103242122234464",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    },
+    {
+      "access_token": "<access token sanitized>",
+      "category": "Personal blog",
+      "category_list": [
+        {
+          "id": "2700",
+          "name": "Personal blog"
+        },
+        {
+          "id": "471120789926333",
+          "name": "Gamer"
+        }
+      ],
+      "name": "Letter boxed solver",
+      "id": "105122761615658",
+      "tasks": [
+        "MODERATE",
+        "MESSAGING",
+        "ANALYZE",
+        "ADVERTISE",
+        "CREATE_CONTENT",
+        "MANAGE"
+      ]
+    }
+  ],
+  "paging": {
+    "cursors": {
+      "before": "QVFIU2NrbXV1WnVVLWpiYjRIMmx4UmNTYl9feDNlQl83clB6NFNpaHg0dm9DZAlg4OVFBb2JCY0Fxa2FyY2VMcXlrSlNValBCVlBKRVF3YTQ0cVhQLThzRmhR",
+      "after": "QVFIU3BINlE1VVlLa1VvV1g3elpIU3hHZAjJpNldNWlNLU1dFWHp6Y2hnQ3RObXlyX1NIdlVwNUVXdlY3VjhaR3lpV0ZAnX0QxTmVSTE1VVk9QcGNKeDB3aGJ3"
+    }
+  }
+}

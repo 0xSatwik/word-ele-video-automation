@@ -15,6 +15,167 @@ from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
+import json
+
+# ============================================================================
+# SOCIAL MEDIA SHARING
+# ============================================================================
+
+def get_permalink(date_obj):
+    """Generate the SEO-friendly permalink for the given date."""
+    # Format: january-15-2026
+    date_str = date_obj.strftime('%B-%d-%Y').lower()
+    return f"https://wordsolverx.com/wordle-answer-for-{date_str}"
+
+def upload_to_facebook(video_path, title, permalink):
+    """Upload video to Facebook Page."""
+    access_token = os.environ.get('FACEBOOK_ACCESS_TOKEN')
+    page_id = "964134700097059" # Wordsolverx ID
+    
+    if not access_token:
+        print("Facebook Access Token missing. Skipping upload.")
+        return None
+
+    print(f"Uploading to Facebook Page: {page_id}...")
+    url = f"https://graph-video.facebook.com/v19.0/{page_id}/videos"
+    
+    payload = {
+        'title': title,
+        'description': f"Today's Wordle Solution! \n\nCheck out the answer and hints: {permalink}\n\n#Wordle #WordleAnswer #WordSolverX",
+        'access_token': access_token
+    }
+    
+    files = {
+        'file': open(video_path, 'rb')
+    }
+    
+    try:
+        response = requests.post(url, data=payload, files=files, timeout=300)
+        res_data = response.json()
+        if 'id' in res_data:
+            print(f"✅ Facebook upload successful: https://www.facebook.com/watch/?v={res_data['id']}")
+            return res_data['id']
+        else:
+            print(f"❌ Facebook upload failed: {res_data}")
+    except Exception as e:
+        print(f"❌ Error uploading to Facebook: {e}")
+    return None
+
+def upload_to_pinterest(video_path, title, permalink):
+    """Upload Video Pin to Pinterest."""
+    access_token = os.environ.get('PINTEREST_ACCESS_TOKEN')
+    board_id = os.environ.get('PINTEREST_BOARD_ID')
+    
+    if not access_token or not board_id:
+        print("Pinterest credentials missing. Skipping upload.")
+        return None
+
+    print("Uploading Video Pin to Pinterest...")
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json"
+    }
+    
+    # Step 1: Register media
+    try:
+        register_url = "https://api.pinterest.com/v5/media"
+        res = requests.post(register_url, headers=headers, json={"media_type": "video"})
+        media_data = res.json()
+        media_id = media_data.get("media_id")
+        upload_url = media_data.get("upload_url")
+        upload_parameters = media_data.get("upload_parameters")
+        
+        if not media_id or not upload_url:
+            print(f"❌ Pinterest media registration failed: {media_data}")
+            return None
+            
+        # Step 2: Upload to S3
+        files = {'file': open(video_path, 'rb')}
+        requests.post(upload_url, data=upload_parameters, files=files)
+        
+        # Wait for processing (it takes time)
+        print("Waiting for Pinterest to process video (can take up to 60s)...")
+        time.sleep(30)
+        
+        # Step 3: Create Pin
+        pin_url = "https://api.pinterest.com/v5/pins"
+        pin_payload = {
+            "board_id": board_id,
+            "media_source": {
+                "source_type": "video_id",
+                "media_id": media_id
+            },
+            "title": title,
+            "description": f"Wordle solution for today! Answer and hints: {permalink}",
+            "link": permalink
+        }
+        res = requests.post(pin_url, headers=headers, json=pin_payload)
+        pin_res = res.json()
+        if 'id' in pin_res:
+             print(f"✅ Pinterest Pin created: https://www.pinterest.com/pin/{pin_res['id']}")
+             return pin_res['id']
+        else:
+             print(f"❌ Pinterest Pin creation failed: {pin_res}")
+    except Exception as e:
+        print(f"❌ Error uploading to Pinterest: {e}")
+    return None
+
+def post_to_blogger(video_id, title, permalink, date_str):
+    """Create a Blogger post with embedded YouTube video."""
+    blog_id = os.environ.get('BLOGGER_BLOG_ID')
+    refresh_token = os.environ.get('YOUTUBE_REFRESH_TOKEN')
+    client_id = os.environ.get('YOUTUBE_CLIENT_ID')
+    client_secret = os.environ.get('YOUTUBE_CLIENT_SECRET')
+
+    if not blog_id or not refresh_token:
+        print("Blogger credentials missing. Skipping.")
+        return None
+
+    print(f"Posting to Blogger: {blog_id}...")
+    
+    # Get Access Token for Blogger
+    try:
+        token_res = requests.post('https://oauth2.googleapis.com/token', data={
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'refresh_token': refresh_token,
+            'grant_type': 'refresh_token'
+        })
+        access_token = token_res.json().get('access_token')
+        
+        url = f"https://www.googleapis.com/blogger/v3/blogs/{blog_id}/posts"
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        
+        youtube_embed = f'<iframe width="560" height="315" src="https://www.youtube.com/embed/{video_id}" frameborder="0" allowfullscreen></iframe>'
+        
+        content = f"""
+        {youtube_embed}
+        <br><br>
+        <h2>Today's Wordle Answer and Hints for {date_str}</h2>
+        <p>Looking for today's Wordle solution? You're in the right place! Watch our step-by-step solver video to see how we cracked today's puzzle.</p>
+        <p>For more Wordle answers, archive, and hints, visit our official website:</p>
+        <a href="{permalink}">{permalink}</a>
+        <br><br>
+        <p>Don't forget to bookmark <b>WordsolverX</b> for your daily word game needs!</p>
+        """
+        
+        payload = {
+            "kind": "blogger#post",
+            "title": title,
+            "content": content,
+            "labels": ["Wordle", "Wordle Answer", "Word Games"]
+        }
+        
+        response = requests.post(url, headers=headers, json=payload)
+        post_data = response.json()
+        if 'id' in post_data:
+            print(f"✅ Blogger post created: {post_data.get('url')}")
+            return post_data['id']
+        else:
+            print(f"❌ Blogger post failed: {post_data}")
+    except Exception as e:
+        print(f"❌ Error posting to Blogger: {e}")
+    return None
 
 # ============================================================================
 # UNWORDLE SOLVER - Trie-based word elimination algorithm
@@ -698,7 +859,22 @@ media = MediaFileUpload(final_video_file, mimetype='video/mp4', resumable=True)
 try:
     request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
     response = request.execute()
-    print(f'✅ Video uploaded: https://youtu.be/{response["id"]}')
+    video_id = response["id"]
+    print(f'✅ Video uploaded: https://youtu.be/{video_id}')
+    
+    # SOCIAL MEDIA SHARING
+    print("\n--- Starting Social Media Sharing ---")
+    permalink = get_permalink(ist_now)
+    
+    # 1. Facebook
+    upload_to_facebook(final_video_file, video_title, permalink)
+    
+    # 2. Pinterest
+    upload_to_pinterest(final_video_file, video_title, permalink)
+    
+    # 3. Blogger
+    post_to_blogger(video_id, video_title, permalink, video_date)
+    
 except Exception as e:
     if "uploadLimitExceeded" in str(e):
         print("\n⚠️ YouTube Upload Limit Exceeded for today.")

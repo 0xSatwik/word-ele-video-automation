@@ -5,7 +5,10 @@ from google.oauth2.credentials import Credentials
 
 # === CHANGE THESE TWO LINES ONLY ===
 CLIENT_SECRETS_FILE = "client_secrets.json"          # path to your downloaded JSON
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/blogger"
+]
 
 def main():
     flow = InstalledAppFlow.from_client_secrets_file(
