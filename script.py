@@ -1,4 +1,5 @@
 import os
+import base64
 import time
 import random
 from datetime import datetime, timedelta, timezone
@@ -64,12 +65,46 @@ def upload_to_facebook(video_path, title, permalink):
     return None
 
 def upload_to_pinterest(video_path, title, permalink):
-    """Upload Video Pin to Pinterest."""
-    access_token = os.environ.get('PINTEREST_ACCESS_TOKEN', '').strip()
+    """Upload Video Pin to Pinterest with automatic token refresh."""
+    refresh_token = os.environ.get('PINTEREST_REFRESH_TOKEN', '').strip()
+    client_id = os.environ.get('PINTEREST_CLIENT_ID', '').strip()
+    client_secret = os.environ.get('PINTEREST_CLIENT_SECRET', '').strip()
     board_id = os.environ.get('PINTEREST_BOARD_ID', '').strip()
     
-    if not access_token or not board_id:
-        print("Pinterest credentials missing. Skipping upload.")
+    # Fallback to direct access token if refresh token is missing (for backwards compatibility)
+    access_token = os.environ.get('PINTEREST_ACCESS_TOKEN', '').strip()
+    
+    if not board_id:
+        print("Pinterest Board ID missing. Skipping upload.")
+        return None
+
+    # Step 0: Get Fresh Access Token using Refresh Token
+    if refresh_token and client_id and client_secret:
+        print("Refreshing Pinterest Access Token...")
+        try:
+            auth_str = f"{client_id}:{client_secret}"
+            encoded_auth = base64.b64encode(auth_str.encode()).decode()
+            
+            token_url = "https://api.pinterest.com/v5/oauth/token"
+            headers = {
+                "Authorization": f"Basic {encoded_auth}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            data = {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token
+            }
+            res = requests.post(token_url, headers=headers, data=data)
+            if res.status_code == 200:
+                access_token = res.json().get("access_token")
+                print("✅ Pinterest Access Token refreshed.")
+            else:
+                print(f"⚠️ Pinterest refresh failed (using fallback): {res.text}")
+        except Exception as e:
+            print(f"⚠️ Error refreshing Pinterest token: {e}")
+
+    if not access_token:
+        print("Pinterest Access Token missing. Skipping upload.")
         return None
 
     print("Uploading Video Pin to Pinterest...")
@@ -88,16 +123,17 @@ def upload_to_pinterest(video_path, title, permalink):
         upload_parameters = media_data.get("upload_parameters")
         
         if not media_id or not upload_url:
-            print(f"❌ Pinterest media registration failed: {media_data}")
+            print(f"❌ Pinterest media registration failed! Response: {json.dumps(media_data, indent=2)}")
             return None
             
         # Step 2: Upload to S3
+        print(f"Uploading video file to Pinterest S3...")
         files = {'file': open(video_path, 'rb')}
         requests.post(upload_url, data=upload_parameters, files=files)
         
-        # Wait for processing (it takes time)
+        # Wait for processing
         print("Waiting for Pinterest to process video (can take up to 60s)...")
-        time.sleep(30)
+        time.sleep(45) # Increased delay slightly
         
         # Step 3: Create Pin
         pin_url = "https://api.pinterest.com/v5/pins"
