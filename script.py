@@ -149,7 +149,8 @@ def upload_to_pinterest(video_path, title, permalink):
             },
             "title": title,
             "description": f"Wordle solution for today! Answer and hints: {permalink}",
-            "link": permalink
+            "link": permalink,
+            "cover_image_key_frame_time": 0
         }
         res = requests.post(pin_url, headers=headers, json=pin_payload)
         pin_res = res.json()
