@@ -29,7 +29,7 @@ def get_permalink(date_obj):
 
 def upload_to_facebook(video_path, title, permalink):
     """Upload video to Facebook Page."""
-    access_token = os.environ.get('FACEBOOK_ACCESS_TOKEN')
+    access_token = os.environ.get('FACEBOOK_ACCESS_TOKEN', '').strip()
     page_id = "964134700097059" # Wordsolverx ID
     
     if not access_token:
@@ -65,8 +65,8 @@ def upload_to_facebook(video_path, title, permalink):
 
 def upload_to_pinterest(video_path, title, permalink):
     """Upload Video Pin to Pinterest."""
-    access_token = os.environ.get('PINTEREST_ACCESS_TOKEN')
-    board_id = os.environ.get('PINTEREST_BOARD_ID')
+    access_token = os.environ.get('PINTEREST_ACCESS_TOKEN', '').strip()
+    board_id = os.environ.get('PINTEREST_BOARD_ID', '').strip()
     
     if not access_token or not board_id:
         print("Pinterest credentials missing. Skipping upload.")
@@ -126,10 +126,10 @@ def upload_to_pinterest(video_path, title, permalink):
 
 def post_to_blogger(video_id, title, permalink, date_str):
     """Create a Blogger post with embedded YouTube video."""
-    blog_id = os.environ.get('BLOGGER_BLOG_ID')
-    refresh_token = os.environ.get('YOUTUBE_REFRESH_TOKEN')
-    client_id = os.environ.get('YOUTUBE_CLIENT_ID')
-    client_secret = os.environ.get('YOUTUBE_CLIENT_SECRET')
+    blog_id = os.environ.get('BLOGGER_BLOG_ID', '').strip()
+    refresh_token = os.environ.get('YOUTUBE_REFRESH_TOKEN', '').strip()
+    client_id = os.environ.get('YOUTUBE_CLIENT_ID', '').strip()
+    client_secret = os.environ.get('YOUTUBE_CLIENT_SECRET', '').strip()
 
     if not blog_id or not refresh_token:
         print("Blogger credentials missing. Skipping.")
