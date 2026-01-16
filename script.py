@@ -135,11 +135,28 @@ def upload_to_pinterest(video_path, title, permalink):
         files = {'file': open(video_path, 'rb')}
         requests.post(upload_url, data=upload_parameters, files=files)
         
-        # Wait for processing
-        print("Waiting for Pinterest to process video (can take up to 60s)...")
-        time.sleep(45) # Increased delay slightly
+        # Step 2.5: Wait for media to be processed
+        print("Waiting for Pinterest to process video...")
+        media_ready = False
+        for attempt in range(12): # Wait up to 2 minutes (12 * 10s)
+            time.sleep(10)
+            status_res = requests.get(f"{register_url}/{media_id}", headers=headers)
+            status_data = status_res.json()
+            status = status_data.get("status")
+            print(f"   - Media status: {status}")
+            if status == "succeeded":
+                media_ready = True
+                break
+            elif status == "failed":
+                print(f"❌ Pinterest media processing failed: {status_data}")
+                return None
+        
+        if not media_ready:
+            print("❌ Pinterest media processing timed out.")
+            return None
         
         # Step 3: Create Pin
+        print("Creating Pin on Pinterest...")
         pin_url = f"{base_url}/v5/pins"
         pin_payload = {
             "board_id": board_id,
@@ -150,7 +167,7 @@ def upload_to_pinterest(video_path, title, permalink):
             "title": title,
             "description": f"Wordle solution for today! Answer and hints: {permalink}",
             "link": permalink,
-            "cover_image_key_frame_time": 0
+            "cover_image_key_frame_time": 0.0 # Use float
         }
         res = requests.post(pin_url, headers=headers, json=pin_payload)
         pin_res = res.json()
