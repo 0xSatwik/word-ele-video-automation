@@ -391,8 +391,21 @@ def build_word_tree(word_file_path):
 
 
 def human_delay(min_seconds=1, max_seconds=3):
-    """Wait for a random amount of time to simulate human behavior."""
-    delay = random.uniform(min_seconds, max_seconds)
+    """Wait for a random amount of time to simulate human behavior with more natural distribution."""
+    # Use normal distribution for more realistic timing
+    # Mean is the midpoint, std dev is 1/4 of the range
+    mean = (min_seconds + max_seconds) / 2
+    std_dev = (max_seconds - min_seconds) / 4
+    
+    # Generate delay using normal distribution, clamped to min/max
+    delay = random.gauss(mean, std_dev)
+    delay = max(min_seconds, min(max_seconds, delay))
+    
+    # 10% chance of a "thinking pause" - longer delay
+    if random.random() < 0.1:
+        thinking_pause = random.uniform(0.5, 1.5)
+        delay += thinking_pause
+    
     time.sleep(delay)
     return delay
 
@@ -471,7 +484,7 @@ final_video_file = f'wordle_{puzzle_date}.mp4'
 print("Launching browser with Playwright...")
 
 with sync_playwright() as p:
-    # Launch browser with stealth settings
+    # Launch browser with enhanced stealth settings
     browser = p.chromium.launch(
         headless=True,
         args=[
@@ -479,6 +492,10 @@ with sync_playwright() as p:
             '--disable-infobars',
             '--no-sandbox',
             '--disable-dev-shm-usage',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-site-isolation-trials',
+            '--window-size=1920,1080',
         ]
     )
     
@@ -500,12 +517,66 @@ with sync_playwright() as p:
     start_trim = 0
     end_trim = None
     
-    # Hide automation
+    # Hide automation and prevent popups
     context.add_init_script("""
+        // Hide automation signals
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
         window.chrome = { runtime: {} };
+        
+        // Inject CSS to prevent popups from displaying
+        const style = document.createElement('style');
+        style.textContent = `
+            /* Hide account creation and bot detection modals */
+            div[role="dialog"]:has(*:is(h1, h2, h3, p):is(:contains("Create a free account"), :contains("tracking your stats"))) {
+                display: none !important;
+                visibility: hidden !important;
+            }
+            div:has(*:is(h1, h2, h3, p):is(:contains("You have been blocked"), :contains("suspect that you"), :contains("robot"))) {
+                display: none !important;
+                visibility: hidden !important;
+            }
+            .Modal-module_modalOverlay__eaFhH { display: none !important; }
+            div[data-testid="bottom-banner"] { display: none !important; }
+            div[data-testid="toast-message"] { display: none !important; }
+        `;
+        
+        // Wait for DOM to be ready
+        if (document.head) {
+            document.head.appendChild(style);
+        } else {
+            document.addEventListener('DOMContentLoaded', () => {
+                document.head.appendChild(style);
+            });
+        }
+        
+        // Monitor for popup elements and remove them immediately
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === 1) { // Element node
+                        const text = node.innerText || '';
+                        if (text.includes('Create a free account') ||
+                            text.includes('You have been blocked') ||
+                            text.includes('suspect that you') ||
+                            text.includes('tracking your stats')) {
+                            console.log('Blocking popup:', text.substring(0, 50));
+                            node.remove();
+                        }
+                    }
+                });
+            });
+        });
+        
+        // Start observing when DOM is ready
+        if (document.body) {
+            observer.observe(document.body, { childList: true, subtree: true });
+        } else {
+            document.addEventListener('DOMContentLoaded', () => {
+                observer.observe(document.body, { childList: true, subtree: true });
+            });
+        }
     """)
     
     page = context.new_page()
@@ -552,15 +623,31 @@ with sync_playwright() as p:
             pass
     
     def type_word(word):
-        """Type a word with human-like behavior."""
+        """Type a word with human-like behavior including mouse movements."""
         print(f"Typing word: {word.upper()}")
+        
+        # Random mouse movement before typing (simulate looking at keyboard)
+        try:
+            page.mouse.move(random.randint(400, 1500), random.randint(600, 900))
+            time.sleep(random.uniform(0.1, 0.3))
+        except:
+            pass
+        
         human_delay(0.5, 1.5)
         
-        for letter in word.lower():
+        for i, letter in enumerate(word.lower()):
             # Find and click the key button
             try:
                 key = page.locator(f'button[data-key="{letter}"]')
                 if key.is_visible():
+                    # Get key position and hover before clicking
+                    box = key.bounding_box()
+                    if box:
+                        # Move to key with slight randomness
+                        target_x = box['x'] + box['width'] / 2 + random.randint(-5, 5)
+                        target_y = box['y'] + box['height'] / 2 + random.randint(-5, 5)
+                        page.mouse.move(target_x, target_y)
+                        time.sleep(random.uniform(0.05, 0.15))
                     key.click()
                 else:
                     page.keyboard.press(letter)
@@ -569,6 +656,20 @@ with sync_playwright() as p:
             
             # Human-like delay between keystrokes
             human_delay(0.12, 0.35)
+            
+            # Occasional random mouse movement (simulate hand movement)
+            if random.random() < 0.3:
+                try:
+                    page.mouse.move(random.randint(400, 1500), random.randint(400, 900))
+                except:
+                    pass
+        
+        # Move mouse away from keyboard before pressing enter
+        try:
+            page.mouse.move(random.randint(800, 1200), random.randint(300, 500))
+            time.sleep(random.uniform(0.1, 0.2))
+        except:
+            pass
         
         # Pause before pressing enter
         human_delay(0.5, 1.0)
@@ -614,14 +715,39 @@ with sync_playwright() as p:
         """Hide specific popups and overlays using targeted locators."""
         print("Cleaning up UI (hiding popups)...")
         try:
-            # 1. Hide "Create a free account" / Login modals
-            # We look for the specific text, then find the closest modal/dialog wrapper to hide
+            # 1. Aggressive CSS injection to hide all potential popups
+            try:
+                page.evaluate("""
+                    () => {
+                        // Inject aggressive CSS rules
+                        const style = document.createElement('style');
+                        style.id = 'popup-blocker-aggressive';
+                        style.textContent = `
+                            div[role="dialog"] { display: none !important; visibility: hidden !important; }
+                            .Modal-module_modalOverlay__eaFhH { display: none !important; }
+                            div[data-testid="bottom-banner"] { display: none !important; }
+                            div[data-testid="toast-message"] { display: none !important; }
+                            /* Hide any fixed/absolute positioned high z-index elements that might be popups */
+                            body > div[style*="position: fixed"][style*="z-index"] { display: none !important; }
+                        `;
+                        
+                        // Remove existing style if present and add new one
+                        const existing = document.getElementById('popup-blocker-aggressive');
+                        if (existing) existing.remove();
+                        document.head.appendChild(style);
+                    }
+                """)
+            except:
+                pass
+            
+            # 2. Hide "Create a free account" / Login modals by text content
             targets = [
                 "Create a free account",
                 "Log In",
                 "Subscribe",
                 "You have been blocked",
-                "suspect that you are a bot"
+                "suspect that you are a bot",
+                "tracking your stats"
             ]
             
             for text in targets:
@@ -636,6 +762,7 @@ with sync_playwright() as p:
                             if (modal) {
                                 modal.style.display = 'none';
                                 modal.style.visibility = 'hidden';
+                                modal.remove();
                             } else {
                                 // Fallback: Traverse up to find blocking overlay
                                 el.style.display = 'none';
@@ -647,8 +774,9 @@ with sync_playwright() as p:
                                         parent.style.display = 'none';
                                         parent.style.visibility = 'hidden';
                                     }
-                                    if (parent.innerText.includes('You have been blocked')) {
+                                    if (parent.innerText && (parent.innerText.includes('You have been blocked') || parent.innerText.includes('Create a free account'))) {
                                          parent.style.display = 'none';
+                                         parent.remove();
                                     }
                                     parent = parent.parentElement;
                                     count++;
@@ -659,19 +787,55 @@ with sync_playwright() as p:
                     # Element not found or other minor error, ignore
                     pass
 
-            # 2. Hide Bottom Banner specifically
+            # 3. Remove all dialogs and modals by role
+            try:
+                page.evaluate("""
+                    () => {
+                        document.querySelectorAll('div[role="dialog"]').forEach(el => {
+                            el.style.display = 'none';
+                            el.remove();
+                        });
+                    }
+                """)
+            except:
+                pass
+
+            # 4. Hide Bottom Banner specifically
             try:
                 page.evaluate("document.querySelector('div[data-testid=\"bottom-banner\"]')?.remove()")
             except:
                 pass
             
-            # 3. Generic sweep for NYT "Toast" messages
+            # 5. Generic sweep for NYT "Toast" messages
             try:
-                page.evaluate("document.querySelectorAll('div[data-testid=\"toast-message\"]').forEach(el => el.style.display = 'none')")
+                page.evaluate("document.querySelectorAll('div[data-testid=\"toast-message\"]').forEach(el => { el.style.display = 'none'; el.remove(); })")
+            except:
+                pass
+            
+            # 6. Remove any overlay elements
+            try:
+                page.evaluate("""
+                    () => {
+                        // Find and remove overlay elements
+                        document.querySelectorAll('div').forEach(el => {
+                            const style = window.getComputedStyle(el);
+                            if (style.position === 'fixed' && parseInt(style.zIndex) > 100) {
+                                const text = el.innerText || '';
+                                if (text.includes('Create a free account') ||
+                                    text.includes('You have been blocked') ||
+                                    text.includes('tracking your stats')) {
+                                    el.style.display = 'none';
+                                    el.remove();
+                                }
+                            }
+                        });
+                    }
+                """)
             except:
                 pass
 
-            human_delay(0.5, 1.0)
+            # Small delay to ensure cleanup completes
+            time.sleep(0.2)
         except Exception as e:
             print(f"Error cleaning UI: {e}")
 
@@ -714,9 +878,16 @@ with sync_playwright() as p:
             print(f"\n🎉 SOLVED! The word was: {best_word.upper()}")
             solved = True
             
-            # Stop IMMEDIATELY to capture "all green" but cutoff before "Blocked" popup
-            # We wait 0.5s to ensure the visual "Green" is rendered on the video
-            human_delay(0.5, 0.5)
+            # IMMEDIATELY clean up any popups before they appear in video
+            print("Cleaning up UI to prevent popups...")
+            clean_up_ui(page)
+            
+            # Wait for green animation to complete
+            human_delay(0.5, 1.0)
+            
+            # Clean up again in case popups appeared during delay
+            clean_up_ui(page)
+            
             end_trim = time.time() - video_start_time
             print(f"End trim set to: {end_trim:.2f} seconds")
             break
@@ -779,18 +950,25 @@ try:
              intro_clip = ImageClip(intro_image_path).set_duration(5).set_fps(24).resize(width=1920, height=1080)
 
     # 2. GAMEPLAY
-    # User Request: Keep start trim logic, but for end trim, simply cut the last 4 seconds of the video
-    # This ensures we lop off the "Blocked" popup that appears at the very end
-    video_end_time = gameplay_clip.duration - 4.0
-    
-    if start_trim > 0 and video_end_time > start_trim:
-        print(f"Trimming video: Start={start_trim:.2f}s, End={video_end_time:.2f}s (duration-3s)")
-        gameplay_clip = gameplay_clip.subclip(start_trim, video_end_time)
+    # Use the end_trim timestamp if available (set when puzzle solved)
+    # This gives us precise control over when to cut the video
+    if end_trim and end_trim > start_trim:
+        # Add small buffer (1.5s) after solve for animation completion
+        video_end_time = end_trim + 1.5
+        print(f"Trimming video using solve timestamp: Start={start_trim:.2f}s, End={video_end_time:.2f}s")
+        gameplay_clip = gameplay_clip.subclip(start_trim, min(video_end_time, gameplay_clip.duration))
+    elif start_trim > 0:
+        # Fallback: cut last 4 seconds if we don't have end_trim
+        video_end_time = gameplay_clip.duration - 4.0
+        if video_end_time > start_trim:
+            print(f"Trimming video (fallback): Start={start_trim:.2f}s, End={video_end_time:.2f}s")
+            gameplay_clip = gameplay_clip.subclip(start_trim, video_end_time)
     else:
-        # Fallback if start trim is invalid or video too short, just cut end
+        # Last resort: just cut the last 4 seconds
+        video_end_time = gameplay_clip.duration - 4.0
         if video_end_time > 0:
-             print(f"Trimming video end only: End={video_end_time:.2f}s")
-             gameplay_clip = gameplay_clip.subclip(0, video_end_time)
+            print(f"Trimming video end only: End={video_end_time:.2f}s")
+            gameplay_clip = gameplay_clip.subclip(0, video_end_time)
     
     content_clips.append(gameplay_clip)
 
