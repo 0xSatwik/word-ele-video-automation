@@ -1067,13 +1067,22 @@ else:
 
         video_description = f"""🟩 Wordle Answer for {video_date}
 
+        wordle anwer today- https://wordsolverx.com/wordle-answer-today
+
+🔗 Try our FREE Wordle Solver:
+Solve ANY Wordle game in seconds with our intelligent word elimination tool!
+
+Wordle solver (advanced) solve any 4 to 12 letter wordle- https://wordsolverx.com/wordle-solver
+
+
+wordle archive and all previous answers- http://wordsolverx.com/wordle-answer-archive
+
 Watch how to solve today's Wordle puzzle step by step! Learn the best strategy to crack the daily Wordle.
 
-
+Nyt wordle answer today, today's wordle answer, 5 letter wordle answer, ai plays wordle, wordle answer, 
 
 📅 Puzzle Date: {video_date}
 
-⭐ Like & Subscribe for daily Wordle solutions!
 
 #Wordle #WordleAnswer #Wordle{puzzle_date.replace('-', '')} #TodaysWordle #WordleSolution #WordleHints #NYTWordle #DailyWordle #WordGame #PuzzleGames
 """
