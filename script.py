@@ -3,21 +3,26 @@ from dotenv import load_dotenv
 import base64
 import time
 import random
+import json
 from datetime import datetime, timedelta, timezone
 import requests
 from playwright.sync_api import sync_playwright
 import io
 import numpy as np
 from PIL import Image
+
 # Monkey patch for Pillow 10+ compatibility (removed ANTIALIAS)
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
-from moviepy.editor import VideoFileClip, ImageClip, concatenate_videoclips, AudioFileClip, afx
-from googleapiclient.discovery import build
-from google.auth.transport.requests import Request
+
+from moviepy.editor import VideoFileClip, ImageClip, concatenate_videoclips, AudioFileClip
+import moviepy.audio.fx.all as afx
 from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-import json
+from google.auth.transport.requests import Request
+import pytumblr
+import openai
 
 # Load environment variables from .env file (for local testing)
 load_dotenv()
@@ -245,6 +250,186 @@ def post_to_blogger(video_id, title, permalink, date_str):
         print(f"❌ Error posting to Blogger: {str(e)}")
     return None
 
+def get_nyt_solution(date_str):
+    """
+    Fetch the solution from the official NYT API for the given date.
+    date_str format: YYYY-MM-DD
+    """
+    try:
+        api_url = f"https://www.nytimes.com/svc/wordle/v2/{date_str}.json"
+        print(f"Fetching NYT solution from: {api_url}")
+        response = requests.get(api_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        solution = data.get("solution")
+        if solution:
+            return solution.lower()
+    except Exception as e:
+        print(f"Error fetching NYT solution: {e}")
+    return None
+
+def generate_ai_article(answer, date_str):
+    """Generate a human-looking article using SambaNova API."""
+    api_key = os.environ.get('SAMBANOVA_API_KEY', '').strip()
+    if not api_key:
+        print("SambaNova API Key missing. Skipping article generation.")
+        return None
+
+    try:
+        url = "https://api.sambanova.ai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        prompt = f"""
+        Write a detailed, human-looking blog post about today's Wordle answer for {date_str}. 
+        The answer is '{answer.upper()}'.
+        
+        The article should include:
+        1. A catchy title.
+        2. A brief introduction about the daily Wordle challenge.
+        3. Hints and clues for today's word without giving it away immediately.
+        4. A section explaining the meaning and usage of the word '{answer.upper()}'.
+        5. A concluding section.
+        
+        Crucially, include these links naturally in the text:
+        - Wordle Solver: https://wordsolverx.com/wordle-solver
+        - Wordle Answer Today: https://wordsolverx.com/wordle-answer-today
+        
+        Format the output in Markdown.
+        """
+
+        payload = {
+            "model": "DeepSeek-R1-Distill-Llama-70B",
+            "messages": [
+                {"role": "system", "content": "You are a professional blog writer specializing in word games and puzzles."},
+                {"role": "user", "content": prompt}
+            ],
+            "stream": False
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response.raise_for_status()
+        res_data = response.json()
+        return res_data['choices'][0]['message']['content']
+    except Exception as e:
+        print(f"Error generating AI article: {e}")
+    return None
+
+def upload_to_tumblr(video_path, title, permalink):
+    """Upload video to Tumblr and link the solver page."""
+    consumer_key = os.environ.get('TUMBLR_CONSUMER_KEY', '').strip()
+    consumer_secret = os.environ.get('TUMBLR_CONSUMER_SECRET', '').strip()
+    oauth_token = os.environ.get('TUMBLR_OAUTH_TOKEN', '').strip()
+    oauth_secret = os.environ.get('TUMBLR_OAUTH_SECRET', '').strip()
+    blog_name = os.environ.get('TUMBLR_BLOG_NAME', '').strip()
+
+    if not all([consumer_key, consumer_secret, oauth_token, oauth_secret, blog_name]):
+        print("Tumblr credentials missing. Skipping upload.")
+        return None
+
+    try:
+        import pytumblr
+        client = pytumblr.TumblrRestClient(consumer_key, consumer_secret, oauth_token, oauth_secret)
+        
+        caption = f"Today's Wordle Solution! \n\nCheck out the answer and hints: {permalink}\n\nUse our advanced Wordle Solver: https://wordsolverx.com/wordle-solver\n\n#Wordle #WordleAnswer #WordSolverX"
+        
+        print(f"Uploading to Tumblr blog: {blog_name}...")
+        response = client.create_video(blog_name, data=video_path, caption=caption, tags=["Wordle", "Wordle Answer", "WordSolverX"])
+        
+        if 'id' in response:
+            print(f"✅ Tumblr upload successful! Post ID: {response['id']}")
+            return response['id']
+        else:
+            print(f"❌ Tumblr upload failed! Response: {response}")
+    except Exception as e:
+        print(f"❌ Error uploading to Tumblr: {str(e)}")
+    return None
+
+
+
+def post_to_devto(title, content):
+    """Post article to Dev.to."""
+    api_key = os.environ.get('DEVTO_API_KEY', '').strip()
+    if not api_key:
+        print("Dev.to API Key missing. Skipping.")
+        return None
+
+    try:
+        url = "https://dev.to/api/articles"
+        headers = {
+            "api-key": api_key,
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "article": {
+                "title": title,
+                "published": True,
+                "body_markdown": content,
+                "tags": ["wordle", "gaming", "puzzles"]
+            }
+        }
+        
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code == 201:
+            print(f"✅ Dev.to article created successfully! {response.json().get('url')}")
+            return response.json().get('id')
+        else:
+            print(f"❌ Dev.to post failed! Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        print(f"❌ Error posting to Dev.to: {str(e)}")
+    return None
+
+def post_to_hashnode(title, content):
+    """Post article to Hashnode via GraphQL."""
+    api_token = os.environ.get('HASHNODE_API_TOKEN', '').strip()
+    publication_id = os.environ.get('HASHNODE_PUBLICATION_ID', '').strip()
+    if not api_token or not publication_id:
+        print("Hashnode credentials missing. Skipping.")
+        return None
+
+    try:
+        url = "https://gql.hashnode.com/"
+        headers = {
+            "Authorization": api_token,
+            "Content-Type": "application/json"
+        }
+        
+        query = """
+        mutation PublishPost($input: PublishPostInput!) {
+          publishPost(input: $input) {
+            post {
+              id
+              url
+            }
+          }
+        }
+        """
+        
+        variables = {
+            "input": {
+                "title": title,
+                "contentMarkdown": content,
+                "publicationId": publication_id,
+                "tags": [{"name": "Wordle", "slug": "wordle"}]
+            }
+        }
+        
+        response = requests.post(url, headers=headers, json={"query": query, "variables": variables})
+        res_data = response.json()
+        
+        if 'data' in res_data and res_data['data'].get('publishPost'):
+            post_url = res_data['data']['publishPost']['post']['url']
+            print(f"✅ Hashnode post created successfully! {post_url}")
+            return res_data['data']['publishPost']['post']['id']
+        else:
+            print(f"❌ Hashnode post failed! Response: {res_data}")
+    except Exception as e:
+        print(f"❌ Error posting to Hashnode: {str(e)}")
+    return None
+
 # ============================================================================
 # UNWORDLE SOLVER - Trie-based word elimination algorithm
 # ============================================================================
@@ -422,9 +607,15 @@ def get_random_starter():
 
 def get_backup_solution(date_str):
     """
-    Fetch the solution from the external API for the given date.
-    API is expected to return JSON with a 'solution' field.
+    Fetch the solution from the NYT API (primary) or backup external API.
+    date_str format: YYYY-MM-DD
     """
+    # Try NYT first
+    nyt_solution = get_nyt_solution(date_str)
+    if nyt_solution:
+        return nyt_solution
+
+    # Fallback to workers API
     try:
         api_url = f"https://wordle-api.litebloggingpro.workers.dev/api/date/{date_str}"
         print(f"Fetching backup solution from: {api_url}")
@@ -1152,3 +1343,24 @@ if not video_id:
     print("⏭️ Skipping Blogger post because YouTube video_id is missing.")
 else:
     post_to_blogger(video_id, video_title, permalink, video_date)
+
+# 4. Tumblr
+upload_to_tumblr(final_video_file, video_title, permalink)
+
+# --- AI Article Generation and Posting (Medium, Dev.to, Hashnode) ---
+print("\n--- Generating AI Article ---")
+# puzzle_date is defined earlier as 'YYYY-MM-DD'
+answer_word = get_backup_solution(puzzle_date)
+if answer_word:
+    ai_article_content = generate_ai_article(answer_word, video_date)
+    if ai_article_content:
+        # 5. Medium
+        # 6. Dev.to
+        post_to_devto(video_title, ai_article_content)
+        
+        # 7. Hashnode
+        post_to_hashnode(video_title, ai_article_content)
+    else:
+        print("⏭️ Skipping blogging platforms because AI article generation failed.")
+else:
+    print("⏭️ Skipping blogging platforms because Wordle answer could not be retrieved.")

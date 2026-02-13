@@ -10,3 +10,5 @@ numpy>=1.18.1
 google-api-python-client
 google-auth-oauthlib
 python-dotenv
+pytumblr
+openai
