@@ -333,7 +333,7 @@ def upload_to_tumblr(video_path, title, permalink):
         import pytumblr
         client = pytumblr.TumblrRestClient(consumer_key, consumer_secret, oauth_token, oauth_secret)
         
-        caption = f"Today's Wordle Solution! \n\nCheck out the answer and hints: {permalink}\n\nUse our advanced Wordle Solver: https://wordsolverx.com/wordle-solver\n\n#Wordle #WordleAnswer #WordSolverX"
+        caption = f"Today's Wordle Solution!<br><br>Check out the answer and hints: <a href='{permalink}'>{permalink}</a><br><br>Use our advanced Wordle Solver: <a href='https://wordsolverx.com/wordle-solver'>https://wordsolverx.com/wordle-solver</a><br><br>#Wordle #WordleAnswer #WordSolverX"
         
         print(f"Uploading to Tumblr blog: {blog_name}...")
         response = client.create_video(blog_name, data=video_path, caption=caption, tags=["Wordle", "Wordle Answer", "WordSolverX"])
