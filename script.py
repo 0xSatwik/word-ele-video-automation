@@ -286,16 +286,24 @@ def generate_ai_article(answer, date_str):
         Write a detailed, human-looking blog post about today's Wordle answer for {date_str}. 
         The answer is '{answer.upper()}'.
         
-        The article should include:
-        1. A catchy title.
-        2. A brief introduction about the daily Wordle challenge.
-        3. Hints and clues for today's word without giving it away immediately.
-        4. A section explaining the meaning and usage of the word '{answer.upper()}'.
-        5. A concluding section.
-        
-        Crucially, include these links naturally in the text:
-        - Wordle Solver: https://wordsolverx.com/wordle-solver
-        - Wordle Answer Today: https://wordsolverx.com/wordle-answer-today
+        STRICT GUIDELINES:
+        1. **Title**: MUST be exactly "Wordle Answer for {date_str}" to optimize permalink structure.
+        2. **First 100 Words**: You MUST include the following links within the first 100 words of the article:
+           - [Wordle Solver](https://wordsolverx.com/wordle-solver)
+           - [Wordle Answer Today](https://wordsolverx.com/wordle-answer-today)
+           Integrate them naturally but prominently.
+        3. **Keywords**: Heavily optimize for these keywords in headings and paragraphs:
+           - "Wordle answer today"
+           - "Today's Wordle answer"
+           - "NYT Wordle answer today"
+           - "Today's NYT Wordle answer"
+           - "NYT Wordle answer for {date_str}"
+        4. **Content**:
+           - Brief introduction to the daily challenge.
+           - Hints and clues (don't reveal the answer immediately).
+           - Meaning and usage of '{answer.upper()}'.
+           - Conclusion.
+        5. **Call to Action**: Encourage users to click the links for help.
         
         Format the output in Markdown.
         """
@@ -312,7 +320,13 @@ def generate_ai_article(answer, date_str):
         response = requests.post(url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         res_data = response.json()
-        return res_data['choices'][0]['message']['content']
+        content = res_data['choices'][0]['message']['content']
+        
+        # Remove thinking/reasoning parts (often enclosed in <think> tags or just prepended)
+        if "<think>" in content and "</think>" in content:
+            content = content.split("</think>")[-1].strip()
+        
+        return content
     except Exception as e:
         print(f"Error generating AI article: {e}")
     return None
