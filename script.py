@@ -22,7 +22,6 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.auth.transport.requests import Request
 import pytumblr
-import openai
 
 # Load environment variables from .env file (for local testing)
 load_dotenv()
@@ -32,10 +31,8 @@ load_dotenv()
 # ============================================================================
 
 def get_permalink(date_obj):
-    """Generate the SEO-friendly permalink for the given date."""
-    # Format: january-15-2026
-    date_str = date_obj.strftime('%B-%d-%Y').lower()
-    return f"https://wordsolverx.com/wordle-answer-for-{date_str}"
+    """Return the canonical Wordle answer page URL."""
+    return "https://wordsolver.tech/wordle-answer-today"
 
 def upload_to_facebook(video_path, title, permalink):
     """Upload video to Facebook Page."""
@@ -74,30 +71,25 @@ def upload_to_facebook(video_path, title, permalink):
     return None
 
 def upload_to_pinterest(video_path, title, permalink):
-    """Upload Video Pin to Pinterest with automatic token refresh."""
+    """Upload Video Pin to Pinterest production API with automatic token refresh."""
     access_token = os.environ.get('PINTEREST_ACCESS_TOKEN', '').strip()
     refresh_token = os.environ.get('PINTEREST_REFRESH_TOKEN', '').strip()
     client_id = os.environ.get('PINTEREST_CLIENT_ID', '').strip()
     client_secret = os.environ.get('PINTEREST_CLIENT_SECRET', '').strip()
     board_id = os.environ.get('PINTEREST_BOARD_ID', '').strip()
-    use_sandbox = os.environ.get('PINTEREST_USE_SANDBOX', 'true').lower() == 'true'
-    
-    # Set base URL based on sandbox mode
-    base_url = "https://api-sandbox.pinterest.com" if use_sandbox else "https://api.pinterest.com"
-    
+    base_url = "https://api.pinterest.com"
+
     if not board_id:
         print("Pinterest Board ID missing. Skipping upload.")
         return None
 
-    # Use access token directly if provided, otherwise try refresh token
     if access_token:
-        print(f"Using Pinterest Access Token ({'Sandbox' if use_sandbox else 'Production'})...")
+        print("Using Pinterest Access Token (Production)...")
     elif refresh_token and client_id and client_secret:
-        print(f"Refreshing Pinterest Access Token ({'Sandbox' if use_sandbox else 'Production'})...")
+        print("Refreshing Pinterest Access Token (Production)...")
         try:
             auth_str = f"{client_id}:{client_secret}"
             encoded_auth = base64.b64encode(auth_str.encode()).decode()
-            
             token_url = f"{base_url}/v5/oauth/token"
             headers = {
                 "Authorization": f"Basic {encoded_auth}",
@@ -107,64 +99,75 @@ def upload_to_pinterest(video_path, title, permalink):
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token
             }
-            res = requests.post(token_url, headers=headers, data=data)
+            res = requests.post(token_url, headers=headers, data=data, timeout=30)
             if res.status_code == 200:
                 access_token = res.json().get("access_token")
-                print("✅ Pinterest Access Token refreshed.")
+                print("Pinterest Access Token refreshed.")
             else:
-                print(f"⚠️ Pinterest refresh failed: {res.text}")
+                print(f"Pinterest refresh failed: {res.text}")
         except Exception as e:
-            print(f"⚠️ Error refreshing Pinterest token: {e}")
+            print(f"Error refreshing Pinterest token: {e}")
 
     if not access_token:
         print("Pinterest Access Token missing. Skipping upload.")
         return None
 
-    print(f"Uploading Video Pin to Pinterest ({'Sandbox' if use_sandbox else 'Production'})...")
+    print("Uploading Video Pin to Pinterest (Production)...")
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
-    
-    # Step 1: Register media
+
     try:
         register_url = f"{base_url}/v5/media"
-        res = requests.post(register_url, headers=headers, json={"media_type": "video"})
+        res = requests.post(register_url, headers=headers, json={"media_type": "video"}, timeout=30)
+        if res.status_code >= 400:
+            print(f"Pinterest media registration HTTP error {res.status_code}: {res.text}")
+            return None
+
         media_data = res.json()
         media_id = media_data.get("media_id")
         upload_url = media_data.get("upload_url")
         upload_parameters = media_data.get("upload_parameters")
-        
+
         if not media_id or not upload_url:
-            print(f"❌ Pinterest media registration failed! Response: {json.dumps(media_data, indent=2)}")
+            print(f"Pinterest media registration failed! Response: {json.dumps(media_data, indent=2)}")
             return None
-            
-        # Step 2: Upload to S3
-        print(f"Uploading video file to Pinterest S3...")
-        files = {'file': open(video_path, 'rb')}
-        requests.post(upload_url, data=upload_parameters, files=files)
-        
-        # Step 2.5: Wait for media to be processed
+
+        print("Uploading video file to Pinterest S3...")
+        with open(video_path, 'rb') as file_obj:
+            files = {'file': file_obj}
+            upload_res = requests.post(upload_url, data=upload_parameters, files=files, timeout=300)
+
+        if upload_res.status_code >= 400:
+            print(f"Pinterest media upload failed with HTTP {upload_res.status_code}: {upload_res.text}")
+            return None
+
         print("Waiting for Pinterest to process video...")
         media_ready = False
-        for attempt in range(12): # Wait up to 2 minutes (12 * 10s)
+        for _ in range(12):
             time.sleep(10)
-            status_res = requests.get(f"{register_url}/{media_id}", headers=headers)
+            status_res = requests.get(f"{register_url}/{media_id}", headers=headers, timeout=30)
+            if status_res.status_code >= 400:
+                print(f"Pinterest media status check failed with HTTP {status_res.status_code}: {status_res.text}")
+                return None
+
             status_data = status_res.json()
             status = status_data.get("status")
             print(f"   - Media status: {status}")
+
             if status == "succeeded":
                 media_ready = True
                 break
-            elif status == "failed":
-                print(f"❌ Pinterest media processing failed: {status_data}")
+            if status == "failed":
+                print(f"Pinterest media processing failed: {status_data}")
                 return None
-        
+
         if not media_ready:
-            print("❌ Pinterest media processing timed out.")
+            print("Pinterest media processing timed out.")
             return None
-        
-        # Step 3: Create Pin
+
         print("Creating Pin on Pinterest...")
         pin_url = f"{base_url}/v5/pins"
         pin_payload = {
@@ -178,17 +181,22 @@ def upload_to_pinterest(video_path, title, permalink):
             "description": f"Wordle solution for today! Answer and hints: {permalink}",
             "link": permalink
         }
-        res = requests.post(pin_url, headers=headers, json=pin_payload)
+
+        res = requests.post(pin_url, headers=headers, json=pin_payload, timeout=30)
+        if res.status_code >= 400:
+            print(f"Pinterest Pin creation HTTP error {res.status_code}: {res.text}")
+            return None
+
         pin_res = res.json()
         if 'id' in pin_res:
-             pin_id = pin_res['id']
-             print(f"✅ {'Sandbox ' if use_sandbox else ''}Pinterest Pin created successfully! Pin ID: {pin_id}")
-             print(f"🔗 View on Pinterest: https://www.pinterest.com/pin/{pin_id}/")
-             return pin_id
-        else:
-             print(f"❌ Pinterest Pin creation failed! Response: {json.dumps(pin_res, indent=2)}")
+            pin_id = pin_res['id']
+            print(f"Pinterest Pin created successfully! Pin ID: {pin_id}")
+            print(f"View on Pinterest: https://www.pinterest.com/pin/{pin_id}/")
+            return pin_id
+
+        print(f"Pinterest Pin creation failed! Response: {json.dumps(pin_res, indent=2)}")
     except Exception as e:
-        print(f"❌ Error uploading to Pinterest: {str(e)}")
+        print(f"Error uploading to Pinterest: {str(e)}")
     return None
 
 def post_to_blogger(video_id, title, permalink, date_str):
@@ -268,69 +276,6 @@ def get_nyt_solution(date_str):
         print(f"Error fetching NYT solution: {e}")
     return None
 
-def generate_ai_article(answer, date_str):
-    """Generate a human-looking article using SambaNova API."""
-    api_key = os.environ.get('SAMBANOVA_API_KEY', '').strip()
-    if not api_key:
-        print("SambaNova API Key missing. Skipping article generation.")
-        return None
-
-    try:
-        url = "https://api.sambanova.ai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        prompt = f"""
-        Write a detailed, human-looking blog post about today's Wordle answer for {date_str}. 
-        The answer is '{answer.upper()}'.
-        
-        STRICT GUIDELINES:
-        1. **Title**: MUST be exactly "Wordle Answer for {date_str}" to optimize permalink structure.
-        2. **First 100 Words**: You MUST include the following links within the first 100 words of the article:
-           - [Wordle Solver](https://wordsolverx.com/wordle-solver)
-           - [Wordle Answer Today](https://wordsolverx.com/wordle-answer-today)
-           Integrate them naturally but prominently.
-        3. **Keywords**: Heavily optimize for these keywords in headings and paragraphs:
-           - "Wordle answer today"
-           - "Today's Wordle answer"
-           - "NYT Wordle answer today"
-           - "Today's NYT Wordle answer"
-           - "NYT Wordle answer for {date_str}"
-        4. **Content**:
-           - Brief introduction to the daily challenge.
-           - Hints and clues (don't reveal the answer immediately).
-           - Meaning and usage of '{answer.upper()}'.
-           - Conclusion.
-        5. **Call to Action**: Encourage users to click the links for help.
-        
-        Format the output in Markdown.
-        """
-
-        payload = {
-            "model": "DeepSeek-R1-Distill-Llama-70B",
-            "messages": [
-                {"role": "system", "content": "You are a professional blog writer specializing in word games and puzzles."},
-                {"role": "user", "content": prompt}
-            ],
-            "stream": False
-        }
-
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        response.raise_for_status()
-        res_data = response.json()
-        content = res_data['choices'][0]['message']['content']
-        
-        # Remove thinking/reasoning parts (often enclosed in <think> tags or just prepended)
-        if "<think>" in content and "</think>" in content:
-            content = content.split("</think>")[-1].strip()
-        
-        return content
-    except Exception as e:
-        print(f"Error generating AI article: {e}")
-    return None
-
 def upload_to_tumblr(video_path, title, permalink):
     """Upload video to Tumblr and link the solver page."""
     consumer_key = os.environ.get('TUMBLR_CONSUMER_KEY', '').strip()
@@ -347,7 +292,7 @@ def upload_to_tumblr(video_path, title, permalink):
         import pytumblr
         client = pytumblr.TumblrRestClient(consumer_key, consumer_secret, oauth_token, oauth_secret)
         
-        caption = f"Today's Wordle Solution!<br><br>Check out the answer and hints: <a href='{permalink}'>{permalink}</a><br><br>Use our advanced Wordle Solver: <a href='https://wordsolverx.com/wordle-solver'>https://wordsolverx.com/wordle-solver</a><br><br>#Wordle #WordleAnswer #WordSolverX"
+        caption = f"Today's Wordle Solution!<br><br>Check out the answer and hints: <a href='{permalink}'>{permalink}</a><br><br>Use our advanced Wordle Solver: <a href='https://wordsolver.tech/wordle-solver'>https://wordsolver.tech/wordle-solver</a><br><br>#Wordle #WordleAnswer #WordSolverX"
         
         print(f"Uploading to Tumblr blog: {blog_name}...")
         response = client.create_video(blog_name, data=video_path, caption=caption, tags=["Wordle", "Wordle Answer", "WordSolverX"])
@@ -362,87 +307,6 @@ def upload_to_tumblr(video_path, title, permalink):
     return None
 
 
-
-def post_to_devto(title, content):
-    """Post article to Dev.to."""
-    api_key = os.environ.get('DEVTO_API_KEY', '').strip()
-    if not api_key:
-        print("Dev.to API Key missing. Skipping.")
-        return None
-
-    try:
-        url = "https://dev.to/api/articles"
-        headers = {
-            "api-key": api_key,
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "article": {
-                "title": title,
-                "published": True,
-                "body_markdown": content,
-                "tags": ["wordle", "gaming", "puzzles"]
-            }
-        }
-        
-        response = requests.post(url, headers=headers, json=payload)
-        if response.status_code == 201:
-            print(f"✅ Dev.to article created successfully! {response.json().get('url')}")
-            return response.json().get('id')
-        else:
-            print(f"❌ Dev.to post failed! Status: {response.status_code}, Response: {response.text}")
-    except Exception as e:
-        print(f"❌ Error posting to Dev.to: {str(e)}")
-    return None
-
-def post_to_hashnode(title, content):
-    """Post article to Hashnode via GraphQL."""
-    api_token = os.environ.get('HASHNODE_API_TOKEN', '').strip()
-    publication_id = os.environ.get('HASHNODE_PUBLICATION_ID', '').strip()
-    if not api_token or not publication_id:
-        print("Hashnode credentials missing. Skipping.")
-        return None
-
-    try:
-        url = "https://gql.hashnode.com/"
-        headers = {
-            "Authorization": api_token,
-            "Content-Type": "application/json"
-        }
-        
-        query = """
-        mutation PublishPost($input: PublishPostInput!) {
-          publishPost(input: $input) {
-            post {
-              id
-              url
-            }
-          }
-        }
-        """
-        
-        variables = {
-            "input": {
-                "title": title,
-                "contentMarkdown": content,
-                "publicationId": publication_id,
-                "tags": [{"name": "Wordle", "slug": "wordle"}]
-            }
-        }
-        
-        response = requests.post(url, headers=headers, json={"query": query, "variables": variables})
-        res_data = response.json()
-        
-        if 'data' in res_data and res_data['data'].get('publishPost'):
-            post_url = res_data['data']['publishPost']['post']['url']
-            print(f"✅ Hashnode post created successfully! {post_url}")
-            return res_data['data']['publishPost']['post']['id']
-        else:
-            print(f"❌ Hashnode post failed! Response: {res_data}")
-    except Exception as e:
-        print(f"❌ Error posting to Hashnode: {str(e)}")
-    return None
 
 # ============================================================================
 # UNWORDLE SOLVER - Trie-based word elimination algorithm
@@ -1272,15 +1136,15 @@ else:
 
         video_description = f"""🟩 Wordle Answer for {video_date}
 
-        wordle anwer today- https://wordsolverx.com/wordle-answer-today
+        wordle anwer today- https://wordsolver.tech/wordle-answer-today
 
 🔗 Try our FREE Wordle Solver:
 Solve ANY Wordle game in seconds with our intelligent word elimination tool!
 
-Wordle solver (advanced) solve any 4 to 12 letter wordle- https://wordsolverx.com/wordle-solver
+Wordle solver (advanced) solve any 4 to 12 letter wordle- https://wordsolver.tech/wordle-solver
 
 
-wordle archive and all previous answers- http://wordsolverx.com/wordle-answer-archive
+wordle archive and all previous answers- https://wordsolver.tech/wordle-answer-archive
 
 Watch how to solve today's Wordle puzzle step by step! Learn the best strategy to crack the daily Wordle.
 
@@ -1361,20 +1225,4 @@ else:
 # 4. Tumblr
 upload_to_tumblr(final_video_file, video_title, permalink)
 
-# --- AI Article Generation and Posting (Medium, Dev.to, Hashnode) ---
-print("\n--- Generating AI Article ---")
-# puzzle_date is defined earlier as 'YYYY-MM-DD'
-answer_word = get_backup_solution(puzzle_date)
-if answer_word:
-    ai_article_content = generate_ai_article(answer_word, video_date)
-    if ai_article_content:
-        # 5. Medium
-        # 6. Dev.to
-        post_to_devto(video_title, ai_article_content)
-        
-        # 7. Hashnode
-        post_to_hashnode(video_title, ai_article_content)
-    else:
-        print("⏭️ Skipping blogging platforms because AI article generation failed.")
-else:
-    print("⏭️ Skipping blogging platforms because Wordle answer could not be retrieved.")
+# Dev.to and Hashnode publishing removed.

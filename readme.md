@@ -90,24 +90,34 @@ After uploading to YouTube, the script automatically shares to:
 
 | Secret Name | Description | How to Get |
 |-------------|-------------|------------|
-| `YOUTUBE_CLIENT_ID` | Google OAuth Client ID | Google Cloud Console |
-| `YOUTUBE_CLIENT_SECRET` | Google OAuth Client Secret | Google Cloud Console |
-| `YOUTUBE_REFRESH_TOKEN` | YouTube API Refresh Token | Run `get_refresh_token.py` |
-| `FACEBOOK_ACCESS_TOKEN` | Facebook Page Access Token | Graph API Explorer with `publish_video` permission |
-| `PINTEREST_ACCESS_TOKEN` | Pinterest Sandbox Access Token | Run `pinterest_oauth.py`, type `yes` for Sandbox |
-| `PINTEREST_BOARD_ID` | Your Pinterest Board ID | Shown after running `pinterest_oauth.py` |
-| `PINTEREST_CLIENT_ID` | Pinterest App ID | Pinterest Developer Portal |
-| `PINTEREST_CLIENT_SECRET` | Pinterest App Secret | Pinterest Developer Portal |
-| `BLOGGER_BLOG_ID` | Your Blogger Blog ID | From Blogger URL or API |
+| YOUTUBE_CLIENT_ID | Google OAuth Client ID | Google Cloud Console |
+| YOUTUBE_CLIENT_SECRET | Google OAuth Client Secret | Google Cloud Console |
+| YOUTUBE_REFRESH_TOKEN | YouTube API Refresh Token | Run get_refresh_token.py |
+| FACEBOOK_ACCESS_TOKEN | Facebook Page Access Token | Graph API Explorer with publish_video permission |
+| PINTEREST_ACCESS_TOKEN | Pinterest Access Token (optional if refresh token is set) | Run pinterest_oauth.py |
+| PINTEREST_REFRESH_TOKEN | Pinterest Refresh Token (recommended) | Run pinterest_oauth.py |
+| PINTEREST_BOARD_ID | Your Pinterest Board ID | Shown after running pinterest_oauth.py |
+| PINTEREST_CLIENT_ID | Pinterest App ID | Pinterest Developer Portal |
+| PINTEREST_CLIENT_SECRET | Pinterest App Secret | Pinterest Developer Portal |
+| PINTEREST_REDIRECT_URI | Pinterest OAuth Redirect URI | Must exactly match app settings (example: http://localhost:8080/pinterest/callback) |
+| BLOGGER_BLOG_ID | Your Blogger Blog ID | From Blogger URL or API |
 
 ### Pinterest Notes (IMPORTANT!)
-- Your Pinterest app is currently in **Trial mode** → must use **Sandbox API**
-- `PINTEREST_USE_SANDBOX` defaults to `true` in the workflow
-- To switch to Production:
-  1. Go to [Pinterest Developer Portal](https://developers.pinterest.com/apps/)
-  2. Click **"Request Standard Access"**
-  3. Once approved, set `PINTEREST_USE_SANDBOX=false` in GitHub Secrets
-  4. Regenerate tokens with `pinterest_oauth.py` (type `no` for Production)
+- This project now uses **Pinterest Production API only** (https://api.pinterest.com).
+- Configure your Pinterest app redirect URI to exactly match PINTEREST_REDIRECT_URI.
+- Recommended redirect URI for local token generation:
+  1. http://localhost:8080/pinterest/callback
+- Required Pinterest scopes:
+  1. boards:read
+  2. pins:read
+  3. pins:write
+  4. boards:write
+- After token generation, store these in GitHub Secrets:
+  1. PINTEREST_CLIENT_ID
+  2. PINTEREST_CLIENT_SECRET
+  3. PINTEREST_REFRESH_TOKEN (preferred) or PINTEREST_ACCESS_TOKEN
+  4. PINTEREST_BOARD_ID
+  5. PINTEREST_REDIRECT_URI
 
 ### Local Development
 
@@ -128,3 +138,4 @@ Use `SKIP_FACEBOOK=true`, `SKIP_PINTEREST=true`, or `SKIP_BLOGGER=true` in `.env
 Happy automating! If you fork/improve this, feel free to share.
 
 Created by [Your Name / @0xSatwik] – January 2026
+
