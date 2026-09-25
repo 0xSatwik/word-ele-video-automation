@@ -118,6 +118,144 @@ def fetch_dictionary(word):
         return {}
 
 
+# Gemini proxy (OpenAI-compatible). Free, no key. Used as the PRIMARY word-info
+# source because api.dictionaryapi.dev has been timing out.
+GEMINI_PROXY_URL = "https://gemini-web-proxy.shonratt.workers.dev/v1/chat/completions"
+GEMINI_PROXY_MODEL = "gemini-3.6-flash"
+
+
+def _gemini_chat(prompt, timeout=30):
+    """POST a single user prompt to the Gemini proxy; return content str or ''."""
+    try:
+        resp = requests.post(
+            GEMINI_PROXY_URL,
+            json={"model": GEMINI_PROXY_MODEL,
+                  "messages": [{"role": "user", "content": prompt}]},
+            headers={"Content-Type": "application/json"},
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+    except Exception as e:
+        print(f"[gemini] request failed: {e}")
+        return ""
+
+
+def _extract_json_block(text):
+    """Strip code fences and pull the first {...} JSON object from a string."""
+    if not text:
+        return None
+    t = text.strip()
+    if t.startswith("```"):
+        # remove leading ```json / ``` and trailing ```
+        t = t.split("```", 2)
+        t = t[1] if len(t) > 1 else text
+        if t.lstrip().lower().startswith("json"):
+            t = t.lstrip()[4:]
+    start = t.find("{")
+    end = t.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    import json as _json
+    try:
+        return _json.loads(t[start:end + 1])
+    except Exception:
+        return None
+
+
+def fetch_word_info_ai(word):
+    """PRIMARY word-info source via the Gemini proxy.
+
+    Returns the SAME dict shape as fetch_dictionary() so all downstream
+    slide/description code is unchanged:
+      word, phonetic, part_of_speech, definition, example, synonyms[], meanings[]
+    Returns {} only on total failure.
+    """
+    if not word:
+        return {}
+    w = word.strip().upper()
+    prompt = (
+        "Return ONLY minified JSON, no prose and no code fences, with EXACTLY these keys: "
+        "word (string), phonetic (IPA string like \"/kre\u026an/\" or empty), "
+        "part_of_speech (string), definition (one clear family-friendly sentence), "
+        "example (a natural sentence using the word, or empty), "
+        "synonyms (array of up to 5 lowercase strings), "
+        "meanings (array of up to 3 objects each {pos, definition, example}). "
+        f"The word is the {len(w)}-letter English word: {w}. "
+        "This is for a family-friendly daily word-puzzle explainer video."
+    )
+    obj = None
+    for _ in range(2):  # one retry
+        content = _gemini_chat(prompt)
+        obj = _extract_json_block(content)
+        if isinstance(obj, dict) and (obj.get("definition") or obj.get("meanings")):
+            break
+        obj = None
+    if not isinstance(obj, dict):
+        # last-ditch: build a minimal dict from raw text so a slide still shows
+        raw = _gemini_chat("Define the word '%s' in one short family-friendly sentence." % w)
+        if raw:
+            print("[wordinfo] AI JSON parse failed; using raw-text fallback")
+            return {
+                "word": w, "phonetic": "", "part_of_speech": "",
+                "definition": raw.strip()[:240], "example": "",
+                "synonyms": [], "meanings": [],
+            }
+        return {}
+
+    # ---- coerce to the canonical shape ----
+    syns = obj.get("synonyms") or []
+    if not isinstance(syns, list):
+        syns = []
+    syns = [str(s).strip() for s in syns if str(s).strip()][:5]
+
+    meanings = []
+    raw_meanings = obj.get("meanings") or []
+    if isinstance(raw_meanings, list):
+        for m in raw_meanings[:3]:
+            if not isinstance(m, dict):
+                continue
+            meanings.append({
+                "pos": str(m.get("pos", "")).strip(),
+                "definition": str(m.get("definition", "")).strip(),
+                "example": str(m.get("example", "")).strip(),
+            })
+
+    definition = str(obj.get("definition", "")).strip()
+    pos = str(obj.get("part_of_speech", "")).strip()
+    example = str(obj.get("example", "")).strip()
+    if not meanings and definition:
+        meanings = [{"pos": pos, "definition": definition, "example": example}]
+
+    return {
+        "word": w,
+        "phonetic": str(obj.get("phonetic", "")).strip(),
+        "part_of_speech": pos,
+        "definition": definition,
+        "example": example,
+        "synonyms": syns,
+        "meanings": meanings,
+    }
+
+
+def fetch_word_info(word):
+    """Resolve word info: AI proxy FIRST, dictionaryapi.dev as fallback."""
+    if not word:
+        return {}
+    info = fetch_word_info_ai(word)
+    if info and info.get("definition"):
+        print(f"[wordinfo] source=gemini-proxy word={word.upper()}")
+        return info
+    print("[wordinfo] AI empty -> falling back to dictionaryapi.dev")
+    fb = fetch_dictionary(word)
+    if fb and fb.get("definition"):
+        print(f"[wordinfo] source=dictionaryapi.dev word={word.upper()}")
+    else:
+        print(f"[wordinfo] no definition from either source for {word.upper()}")
+    return fb
+
+
 def compute_hints(solution):
     """
     Compute 3 progressive hints from the solution word:
@@ -1735,6 +1873,57 @@ def human_type(page, text, delay_min=0.08, delay_max=0.25):
         time.sleep(random.uniform(delay_min, delay_max))
 
 
+def dismiss_cookie_consent(page, max_wait=12):
+    """Neutralize the NYT/Fides cookie-consent modal that blocks the Play button.
+
+    NYT wraps consent in <div id="fides-overlay"> whose .fides-modal-overlay
+    intercepts pointer events, so Play is 'visible' but unclickable and the
+    board never mounts (no real gameplay recorded). Clicking Accept/Reject
+    does not always clear it, so we ALSO forcibly remove the overlay nodes and
+    kill pointer-events / body scroll-lock every pass.
+    """
+    print("Neutralizing NYT cookie-consent (fides) overlay...")
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        try:
+            state = page.evaluate(
+                """() => {
+                    // 1. try to click an accept/reject button (best-effort consent)
+                    const btns = Array.from(document.querySelectorAll(
+                        '#fides-overlay button, #fides-banner button, .fides-banner-button-group button'
+                    ));
+                    const want = btns.find(b => /accept all|accept|agree|reject all|continue|got it|ok/i.test((b.innerText||'').trim()));
+                    if (want) { try { want.click(); } catch(e){} }
+                    // 2. forcibly remove overlay/banner nodes
+                    let removed = 0;
+                    document.querySelectorAll(
+                        '#fides-overlay, .fides-modal-overlay, #fides-banner, .fides-overlay'
+                    ).forEach(el => { try { el.remove(); removed++; } catch(e){} });
+                    // 3. kill leftover pointer-blocking + scroll lock
+                    document.querySelectorAll('.fides-modal-overlay').forEach(el => {
+                        el.style.pointerEvents = 'none'; el.style.display = 'none';
+                    });
+                    document.documentElement.style.overflow = 'auto';
+                    if (document.body) document.body.style.overflow = 'auto';
+                    const present = !!document.querySelector('#fides-overlay, .fides-modal-overlay, #fides-banner');
+                    return { present, removed, clicked: want ? (want.innerText||'').slice(0,20) : null };
+                }"""
+            )
+        except Exception as e:
+            print(f"  consent eval error: {e}")
+            return True
+        if state.get("clicked"):
+            print(f"  consent button clicked: {state['clicked']}")
+        if state.get("removed"):
+            print(f"  overlay nodes removed: {state['removed']}")
+        if not state.get("present"):
+            print("  Cookie overlay cleared.")
+            return True
+        page.wait_for_timeout(700)
+    print("  Cookie-consent handling finished (last pass).")
+    return True
+
+
 def dismiss_ad_interstitial(page, max_wait=15, max_retries=3):
     """
     Dismiss the NYT 'Advertisement' interstitial that appears after
@@ -1891,7 +2080,7 @@ else:
 # Pre-fetch word dictionary + yesterday/tomorrow solutions (best-effort).
 # These are used in the description and as overlay text in the video.
 known_solution = nyt_meta.get("solution", "")  # used for hints/analysis only
-dict_info = fetch_dictionary(known_solution) if known_solution else {}
+dict_info = fetch_word_info(known_solution) if known_solution else {}
 letter_freq_info = get_letter_frequency_info(known_solution) if known_solution else {}
 ytd_info = get_yesterday_tomorrow_solutions(puzzle_date)
 
@@ -2013,18 +2202,42 @@ with sync_playwright() as p:
     print("Waiting for page to load...")
     human_delay(2, 3)
     
+    # NEW (Sep 2026 fix): dismiss the NYT/Fides cookie-consent overlay first.
+    # Its .fides-modal-overlay intercepts pointer events and makes the Play
+    # button unclickable, so the board never mounts and no real gameplay is
+    # recorded. Must run BEFORE clicking Play.
+    dismiss_cookie_consent(page, max_wait=10)
+
     # Click Play button
     try:
         human_delay(1, 2)
         play_button = page.locator('button[data-testid="Play"]')
         if play_button.is_visible():
-            play_button.click()
-            print("Clicked Play button")
+            try:
+                play_button.click(timeout=8000)
+                print("Clicked Play button")
+            except Exception as ce:
+                # Overlay still intercepting -> JS-force Play click (bypass overlay)
+                print(f"Normal Play click blocked ({ce}); JS-force Play click...")
+                dismiss_cookie_consent(page, max_wait=6)
+                page.evaluate(
+                    "() => { const b = document.querySelector('button[data-testid=\"Play\"]'); if (b) b.click(); }"
+                )
+                print("JS-forced Play click issued")
             human_delay(2, 4)
         else:
             print("Play button not visible (may have been auto-played).")
     except Exception as e:
         print(f"Play button not found: {e}")
+        # last resort JS click
+        try:
+            page.evaluate(
+                "() => { const b = document.querySelector('button[data-testid=\"Play\"]'); if (b) b.click(); }"
+            )
+            print("JS-force Play click fallback issued")
+            human_delay(2, 4)
+        except Exception:
+            pass
 
     # ----------------------------------------------------------------------
     # NEW (mid-2026 fix): NYT now shows an "Advertisement" interstitial
