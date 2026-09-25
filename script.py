@@ -2046,7 +2046,17 @@ def wait_for_wordle_board(page, max_wait=15):
 # UTC + 5:30 always gives the correct "Local Date" in India.
 
 utc_now = datetime.now(timezone.utc)
-ist_now = utc_now + timedelta(hours=5, minutes=30)
+# Timezone-configurable target date. Default 330 = IST (+5:30), so existing
+# behaviour is unchanged unless TZ_OFFSET_MINUTES is set.
+#   Production: 540 (Japan, UTC+9) -> at >=20:30 IST it is already the NEXT
+#   calendar day, so we generate tomorrow's puzzle in the evening.
+#   Local test: 840 (Kiribati, UTC+14) -> already next day, proves the trick.
+try:
+    _tz_off_min = int(os.environ.get('TZ_OFFSET_MINUTES', '330'))
+except ValueError:
+    _tz_off_min = 330
+ist_now = utc_now + timedelta(minutes=_tz_off_min)
+print(f"[tz] TZ_OFFSET_MINUTES={_tz_off_min} -> target local now: {ist_now:%Y-%m-%d %H:%M}")
 
 video_date = ist_now.strftime('%B %d, %Y')  # e.g., "January 12, 2026"
 video_date_short = ist_now.strftime('%d %b %Y')  # e.g., "12 Jan 2026"
@@ -2122,9 +2132,9 @@ with sync_playwright() as p:
         record_video_dir='.',
         record_video_size={'width': 1920, 'height': 1080},
         user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        timezone_id='Asia/Kolkata',
-        locale='en-IN',
-        geolocation={'latitude': 28.6139, 'longitude': 77.2090}, # New Delhi
+        timezone_id=os.environ.get('BROWSER_TZ', 'Asia/Tokyo'),
+        locale='en-US',
+        geolocation={'latitude': 35.6762, 'longitude': 139.6503}, # Tokyo (matches Japan TZ)
         permissions=['geolocation']
     )
     
@@ -2927,33 +2937,12 @@ else:
         print(f"[seo] Tags: {video_tags}")
 
         # ====================================================================
-        # PREMIERE SCHEDULING (set publishAt to next 7 AM IST if not yet)
-        # Premieres get 2-3x more initial engagement than plain uploads.
+        # PUBLISH IMMEDIATELY (no premiere delay). The video must be PUBLIC as
+        # soon as it finishes so it beats the frontend answer publish and can
+        # be embedded. No publishAt -> YouTube makes it public right away.
         # ====================================================================
-        status_body = {'privacyStatus': 'public'}
-        try:
-            # If current IST time is before 7 AM, schedule for today 7 AM IST
-            # Otherwise publish immediately (don't delay past the day).
-            ist_hour = ist_now.hour
-            if 0 <= ist_hour < 7:
-                # Schedule for today at 7 AM IST = 1:30 UTC
-                target_utc = utc_now.replace(hour=1, minute=30, second=0, microsecond=0)
-                # YouTube requires publishAt to be in the FUTURE (with a small
-                # safety margin of 5 minutes). If the calculated time is in
-                # the past (script ran after 6:55 AM IST), fall back to immediate
-                # publish.
-                min_publish_time = utc_now + timedelta(minutes=5)
-                if target_utc <= min_publish_time:
-                    # Time already passed — publish immediately
-                    print(f"[seo] Premiere time already passed (UTC {target_utc:%H:%M}); "
-                          f"publishing immediately")
-                else:
-                    publish_at = target_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-                    status_body['publishAt'] = publish_at
-                    status_body['selfDeclaredMadeForKids'] = False
-                    print(f"[seo] Premiere scheduled for: {publish_at} UTC (7 AM IST)")
-        except Exception as e:
-            print(f"[seo] Premiere scheduling skipped: {e}")
+        status_body = {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
+        print("[seo] Publishing immediately (public now, no premiere).")
 
         # ====================================================================
         # Generate custom thumbnail via Pillow

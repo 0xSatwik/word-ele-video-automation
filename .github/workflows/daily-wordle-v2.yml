@@ -45,6 +45,9 @@ jobs:
 
       - name: Run script
         env:
+          # Japan TZ (UTC+9): an evening-IST run targets the NEXT day's puzzle.
+          TZ_OFFSET_MINUTES: '540'
+          BROWSER_TZ: 'Asia/Tokyo'
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
